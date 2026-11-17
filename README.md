@@ -39,4 +39,4 @@ Abra `http://127.0.0.1:8766` no **mesmo computador**. Insira a chave, cadastre m
 
 ## Área móvel experimental
 
-No mesmo servidor de gestão, acesse `http://127.0.0.1:8766/motorista`. O administrador pode definir senhas individuais no cadastro; o motorista entra com placa e senha e visualiza somente a viagem liberada para ele. É possível registrar ocorrências com motivo e histórico; a baixa como **entregue** ainda está bloqueada até a implementação da foto obrigatória do canhoto. Esta tela ainda não funciona offline e **não é um APK**.
+No mesmo servidor de gestão, acesse `http://127.0.0.1:8766/motorista`. O administrador pode definir senhas individuais no cadastro; o motorista entra com placa e senha e visualiza somente a viagem liberada para ele. É possível registrar ocorrências com motivo e histórico; para baixar uma nota como **entregue**, a fotografia é obrigatória. A viagem só encerra se nenhuma nota permanecer pendente. Fotos são armazenadas no SQLite local **sem criptografia em repouso** nesta POC, por isso não use imagens reais de clientes antes de concluirmos a segurança. Esta tela ainda não funciona offline e **não é um APK**.
