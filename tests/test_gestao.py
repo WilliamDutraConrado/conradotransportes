@@ -64,6 +64,23 @@ class APITest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result["status"], "released")
 
+    def test_detalhes_exigem_administrador_e_preservam_nfs_individuais(self):
+        _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
+        _, trip = self.request("/api/trips", {"vehicle_id": driver["vehicle_id"], "label": "Carga de teste"})
+        payload = {"arquivos": [
+            {"name": "nf1.xml", "base64": base64.b64encode(xml("1" * 44)).decode()},
+            {"name": "nf2.xml", "base64": base64.b64encode(xml("2" * 44)).decode()},
+        ]}
+        self.assertEqual(self.request(f"/api/trips/{trip['trip_id']}/import", payload)[0], 200)
+        url = f"/api/trips/{trip['trip_id']}/detail"
+        self.assertEqual(self.request(url, authorized=False)[0], 401)
+        status, detail = self.request(url)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(detail["notes"]), 2)
+        self.assertEqual(len({n["id"] for n in detail["notes"]}), 2)
+        self.assertEqual({n["status"] for n in detail["notes"]}, {"pending"})
+        self.assertEqual(self.request("/api/trips/99999/detail")[0], 404)
+
 
 if __name__ == "__main__":
     unittest.main()
