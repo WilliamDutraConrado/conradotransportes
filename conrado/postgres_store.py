@@ -93,6 +93,18 @@ class PostgresStore:
                 "notes": {key: notes.get(key, 0) for key in ("pending", "delivered", "partial", "refused", "occurrence")},
             }
 
+    def trip_detail(self, trip_id):
+        with self.connection() as db:
+            trip = db.execute("""SELECT t.id,t.label,t.status,v.plate,d.name AS driver
+                FROM app.trips t JOIN app.vehicles v ON v.id=t.vehicle_id
+                JOIN app.drivers d ON d.id=t.driver_id WHERE t.id=%s""", (trip_id,)).fetchone()
+            if not trip:
+                return None
+            notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.status,
+                n.gross_weight,n.volumes FROM app.notes n WHERE n.trip_id=%s
+                ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
+            return {**dict(trip), "notes": [dict(n) for n in notes]}
+
     def import_notes(self, trip_id, notes):
         if not 1 <= len(notes) <= 300:
             raise BusinessError("O lote deve conter de 1 a 300 notas")
