@@ -1,4 +1,5 @@
 import tempfile
+import base64
 import unittest
 from pathlib import Path
 
@@ -75,6 +76,24 @@ class StoreTest(unittest.TestCase):
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
         with self.assertRaises(BusinessError):
             self.db.record_delivery(self.driver["driver_id"], note_id, "evento-1234567890", "delivered", "")
+
+    def test_foto_obrigatoria_e_encerramento(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Primeira carga")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
+        self.db.release_trip(trip["trip_id"])
+        with self.assertRaises(BusinessError):
+            self.db.close_driver_trip(self.driver["driver_id"], trip["trip_id"])
+        note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        jpeg = base64.b64encode(b"\xff\xd8\xff" + b"test-fixture" * 15).decode()
+        result = self.db.record_delivery(self.driver["driver_id"], note_id, "evento-1234567890", "delivered", "", jpeg)
+        self.assertEqual(result["status"], "delivered")
+        with self.db.connection() as connection:
+            evidence = connection.execute("SELECT sha256,content FROM evidence WHERE note_id=?", (note_id,)).fetchone()
+            self.assertIsNotNone(evidence)
+            self.assertTrue(evidence["content"].startswith(b"\xff\xd8\xff"))
+        closed = self.db.close_driver_trip(self.driver["driver_id"], trip["trip_id"])
+        self.assertEqual(closed["status"], "closed")
+        self.assertIsNone(self.db.driver_trip(self.driver["driver_id"]))
 
 
 if __name__ == "__main__":
