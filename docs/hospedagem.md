@@ -4,6 +4,10 @@
 
 **Não publicar a aplicação atual em produção.** O código do piloto utiliza SQLite local, um servidor HTTP de desenvolvimento e a foto do canhoto fica gravada no SQLite sem criptografia. O SQL PostgreSQL em `infra/supabase/001_schema.sql` está preparado para revisão, mas ainda **não foi executado**, e o backend **não foi migrado**.
 
+Infraestrutura criada em 17/11/2026: projeto gratuito `conrado-entregas-dev` na região São Paulo, com bucket privado `canhotos`, permitindo apenas JPEG e PNG de até 5 MB. Nenhum documento real foi importado e nenhuma cobrança foi autorizada.
+
+O módulo `conrado/supabase_storage.py` implementa a comunicação privada para envio de imagens e geração de URLs temporárias (máximo 5 minutos). Está testado com respostas simuladas, **mas ainda não está integrado ao fluxo de entrega**. Não disponibilize a chave de serviço no APK, painel ou código do GitHub.
+
 ## Arquitetura-alvo
 
 - **Railway:** aplicação Python HTTPS atrás do proxy, serviço sem disco persistente de documentos. Variáveis sensíveis somente no gerenciador de secrets.
