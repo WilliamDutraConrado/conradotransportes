@@ -53,6 +53,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/":
             self._respond(200, (ROOT / "web" / "gestao.html").read_bytes(), "text/html; charset=utf-8")
             return
+        if self.path == "/motorista":
+            self._respond(200, (ROOT / "web" / "motorista.html").read_bytes(), "text/html; charset=utf-8")
+            return
+        if self.path == "/api/driver/trip":
+            token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+            driver_id = self.server.db.driver_by_token(token)
+            if not driver_id:
+                self._json(401, {"erro": "Sessão do motorista inválida ou expirada"})
+            else:
+                self._json(200, {"trip": self.server.db.driver_trip(driver_id)})
+            return
         if not self._allowed():
             self._json(401, {"erro": "Chave administrativa inválida"})
             return
@@ -67,9 +78,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._check_origin():
             self._json(403, {"erro": "Origem não permitida"})
             return
-        if not self._allowed():
-            self._json(401, {"erro": "Chave administrativa inválida"})
-            return
         if self.headers.get_content_type() != "application/json":
             self._json(415, {"erro": "Conteúdo precisa ser JSON"})
             return
@@ -80,7 +88,23 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if not isinstance(body, dict):
                 raise BusinessError("Formato inválido")
-            if self.path == "/api/drivers":
+            if self.path == "/api/driver/login":
+                result = {"token": self.server.db.authenticate_driver(body["plate"], body["password"])}
+            elif (match := re.fullmatch(r"/api/driver/notes/(\d+)/status", self.path)):
+                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                driver_id = self.server.db.driver_by_token(token)
+                if not driver_id:
+                    self._json(401, {"erro": "Sessão do motorista inválida"})
+                    return
+                result = self.server.db.record_delivery(driver_id, int(match.group(1)),
+                    body["event_id"], body["status"], body.get("reason", ""))
+            elif not self._allowed():
+                self._json(401, {"erro": "Chave administrativa inválida"})
+                return
+            elif (match := re.fullmatch(r"/api/drivers/(\d+)/password", self.path)):
+                self.server.db.set_driver_password(int(match.group(1)), body["password"])
+                result = {"updated": True}
+            elif self.path == "/api/drivers":
                 result = self.server.db.create_driver(body["name"], body["plate"], body["vehicle_type"])
             elif self.path == "/api/trips":
                 result = self.server.db.create_trip(int(body["vehicle_id"]), body["label"])
