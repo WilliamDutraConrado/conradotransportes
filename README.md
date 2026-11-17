@@ -36,3 +36,7 @@ python3 -m conrado.gestao
 ```
 
 Abra `http://127.0.0.1:8766` no **mesmo computador**. Insira a chave, cadastre motoristas e veículos, crie rascunhos de viagens, importe os XMLs correspondentes e libere a viagem após conferência. Dados são salvos em `conrado_local.sqlite` local (ignorado pelo Git). **Não use esta versão em produção:** a chave única administrativa não substitui a gestão completa de usuários e permissões, não há HTTPS externo nem backup automatizado.
+
+## Área móvel experimental
+
+No mesmo servidor de gestão, acesse `http://127.0.0.1:8766/motorista`. O administrador pode definir senhas individuais no cadastro; o motorista entra com placa e senha e visualiza somente a viagem liberada para ele. É possível registrar ocorrências com motivo e histórico; a baixa como **entregue** ainda está bloqueada até a implementação da foto obrigatória do canhoto. Esta tela ainda não funciona offline e **não é um APK**.
