@@ -182,7 +182,24 @@ class Store:
             notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.status,
                 n.gross_weight,n.volumes FROM notes n WHERE n.trip_id=?
                 ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
-            return {**dict(trip), "notes": [dict(n) for n in notes]}
+            events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.created_at,
+                d.name AS driver,CASE WHEN EXISTS (
+                    SELECT 1 FROM evidence x WHERE x.event_id=e.id
+                ) THEN 1 ELSE 0 END AS has_evidence
+                FROM delivery_events e JOIN drivers d ON d.id=e.driver_id
+                JOIN notes n ON n.id=e.note_id WHERE n.trip_id=?
+                ORDER BY e.created_at,e.id""", (trip_id,)).fetchall()
+            events_by_note: dict[int, list[dict]] = {}
+            for event in events:
+                item = dict(event)
+                item["has_evidence"] = bool(item["has_evidence"])
+                events_by_note.setdefault(item.pop("note_id"), []).append(item)
+            result_notes = []
+            for note in notes:
+                item = dict(note)
+                item["events"] = events_by_note.get(item["id"], [])
+                result_notes.append(item)
+            return {**dict(trip), "notes": result_notes}
 
     def import_notes(self, trip_id: int, notes: list[dict]) -> dict:
         if not notes or len(notes) > 300:

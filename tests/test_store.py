@@ -42,7 +42,23 @@ class StoreTest(unittest.TestCase):
         detail = self.db.trip_detail(trip["trip_id"])
         self.assertEqual(len(detail["notes"]), 2)
         self.assertEqual(len({n["id"] for n in detail["notes"]}), 2)
+        self.assertEqual(detail["notes"][0]["events"], [])
         self.assertIsNone(self.db.trip_detail(99999))
+
+    def test_detalhe_exibe_historico_cronologico_por_nota(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Carga com ocorrência")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
+        self.db.release_trip(trip["trip_id"])
+        note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-historico-01", "occurrence", "Caixa avariada")
+        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-historico-02", "partial", "Cliente recebeu parcialmente")
+
+        events = self.db.trip_detail(trip["trip_id"])["notes"][0]["events"]
+        self.assertEqual([event["status"] for event in events], ["occurrence", "partial"])
+        self.assertEqual(events[0]["reason"], "Caixa avariada")
+        self.assertEqual(events[0]["driver"], "Motorista Teste")
+        self.assertFalse(events[0]["has_evidence"])
+        self.assertNotIn("note_id", events[0])
 
     def test_uma_viagem_liberada_por_veiculo(self):
         first = self.db.create_trip(self.driver["vehicle_id"], "Segunda-feira")

@@ -103,7 +103,23 @@ class PostgresStore:
             notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.status,
                 n.gross_weight,n.volumes FROM app.notes n WHERE n.trip_id=%s
                 ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
-            return {**dict(trip), "notes": [dict(n) for n in notes]}
+            events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.created_at::text AS created_at,
+                d.name AS driver,EXISTS (
+                    SELECT 1 FROM app.evidence x WHERE x.event_id=e.id
+                ) AS has_evidence
+                FROM app.delivery_events e JOIN app.drivers d ON d.id=e.driver_id
+                JOIN app.notes n ON n.id=e.note_id WHERE n.trip_id=%s
+                ORDER BY e.created_at,e.id""", (trip_id,)).fetchall()
+            events_by_note = {}
+            for event in events:
+                item = dict(event)
+                events_by_note.setdefault(item.pop("note_id"), []).append(item)
+            result_notes = []
+            for note in notes:
+                item = dict(note)
+                item["events"] = events_by_note.get(item["id"], [])
+                result_notes.append(item)
+            return {**dict(trip), "notes": result_notes}
 
     def import_notes(self, trip_id, notes):
         if not 1 <= len(notes) <= 300:

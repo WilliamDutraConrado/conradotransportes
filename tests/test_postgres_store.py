@@ -24,6 +24,9 @@ class FakePostgres(PostgresStore):
     def fetchone(self):
         return self._reply
 
+    def fetchall(self):
+        return self._reply or []
+
 
 class PostgresStoreTests(unittest.TestCase):
     def test_constructor_requires_private_storage(self):
@@ -59,10 +62,24 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(len(store.calls), 1)
 
     def test_summary_populates_missing_statuses(self):
-        store = FakePostgres([])
-        store.fetchall = lambda: []
+        store = FakePostgres([[], []])
         self.assertEqual(store.summary()["trips"]["released"], 0)
         self.assertEqual(store.summary()["notes"]["delivered"], 0)
+
+    def test_trip_detail_includes_event_history(self):
+        store = FakePostgres([
+            {"id": 3, "label": "Carga", "status": "released", "plate": "ABC1D23", "driver": "Motorista"},
+            [{"id": 8, "number": "123", "recipient": "Cliente", "address": "Rua 1",
+              "status": "occurrence", "gross_weight": 10, "volumes": 2}],
+            [{"id": "event-123456789", "note_id": 8, "status": "occurrence", "reason": "Avaria",
+              "created_at": "2026-11-17 12:00:00+00", "driver": "Motorista", "has_evidence": False}],
+        ])
+
+        detail = store.trip_detail(3)
+
+        self.assertEqual(detail["notes"][0]["events"][0]["reason"], "Avaria")
+        self.assertNotIn("note_id", detail["notes"][0]["events"][0])
+        self.assertIn("app.delivery_events", store.calls[2][0])
 
 
 if __name__ == "__main__":
