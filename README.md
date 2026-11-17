@@ -21,3 +21,7 @@ Para rodar os testes:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## Estrutura de dados (em desenvolvimento)
+
+O módulo `conrado/store.py` já implementa cadastro de motoristas/veículos, viagens em rascunho, importação transacional de notas e liberação de uma viagem por placa. Ele usa SQLite local, mantém um registro de eventos administrativos e **ainda não está ligado à interface web**. Nenhum motorista ou placa real vem pré-cadastrado. Não utilize essa estrutura para dados operacionais reais até concluirmos autenticação, autorização, backups e gestão de evidências.
