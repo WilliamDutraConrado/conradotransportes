@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import base64
+import binascii
 import hmac
 import secrets
 import re
@@ -95,6 +97,12 @@ class Store:
                 status TEXT NOT NULL CHECK(status IN ('delivered','partial','refused','occurrence')),
                 reason TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence (
+                id INTEGER PRIMARY KEY, note_id INTEGER NOT NULL REFERENCES notes(id),
+                event_id TEXT NOT NULL REFERENCES delivery_events(id),
+                mime TEXT NOT NULL, sha256 TEXT NOT NULL,
+                content BLOB NOT NULL, created_at TEXT NOT NULL
             );
             """)
 
@@ -244,7 +252,8 @@ class Store:
                 WHERE trip_id=? ORDER BY recipient,address,number""", (trip["id"],)).fetchall()
             return {**dict(trip), "notes": [dict(n) for n in notes]}
 
-    def record_delivery(self, driver_id: int, note_id: int, event_id: str, status: str, reason: str) -> dict:
+    def record_delivery(self, driver_id: int, note_id: int, event_id: str, status: str, reason: str,
+                        photo_base64: str | None = None) -> dict:
         if status not in ("delivered", "partial", "refused", "occurrence"):
             raise BusinessError("Situação inválida")
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
@@ -253,6 +262,24 @@ class Store:
             raise BusinessError("Observação muito longa")
         if status != "delivered" and len(reason.strip()) < 3:
             raise BusinessError("Informe o motivo da ocorrência")
+        photo = None
+        photo_type = None
+        if photo_base64:
+            try:
+                photo = base64.b64decode(photo_base64, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise BusinessError("Foto inválida") from exc
+            if len(photo) > 5_000_000 or len(photo) < 100:
+                raise BusinessError("Foto precisa ter entre 100 bytes e 5 MB")
+            if photo.startswith(b"\xff\xd8\xff"):
+                photo_type = "image/jpeg"
+            elif photo.startswith(b"\x89PNG\r\n\x1a\n"):
+                photo_type = "image/png"
+            else:
+                raise BusinessError("Foto deve ser JPEG ou PNG")
+        if status == "delivered" and photo is None:
+            raise BusinessError("Fotografia do canhoto é obrigatória para marcar entrega concluída")
+
         with self.connection() as db:
             existing = db.execute("SELECT id,note_id,driver_id FROM delivery_events WHERE id=?", (event_id,)).fetchone()
             if existing:
@@ -264,12 +291,24 @@ class Store:
                 (note_id, driver_id)).fetchone()
             if not note or note["trip_status"] != "released":
                 raise BusinessError("Nota não pertence à viagem ativa deste motorista")
-            # O comprovante fotográfico deve ser associado antes de permitir status entregue.
-            if status == "delivered":
-                raise BusinessError("Entrega concluída exige fotografia do canhoto; recurso ainda em desenvolvimento")
             db.execute("""INSERT INTO delivery_events(id,note_id,driver_id,status,reason,created_at)
                 VALUES(?,?,?,?,?,?)""", (event_id, note_id, driver_id, status, reason.strip(), now()))
+            if photo is not None:
+                db.execute("""INSERT INTO evidence(note_id,event_id,mime,sha256,content,created_at)
+                    VALUES(?,?,?,?,?,?)""", (note_id, event_id, photo_type, hashlib.sha256(photo).hexdigest(), photo, now()))
             db.execute("UPDATE notes SET status=? WHERE id=?", (status, note_id))
             self._audit(db, f"driver:{driver_id}", "status_changed", "note", note_id,
                         {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id})
             return {"event_id": event_id, "duplicate": False, "status": status}
+
+    def close_driver_trip(self, driver_id: int, trip_id: int) -> dict:
+        with self.connection() as db:
+            trip = db.execute("SELECT id,status FROM trips WHERE id=? AND driver_id=?", (trip_id, driver_id)).fetchone()
+            if not trip or trip["status"] != "released":
+                raise BusinessError("Viagem não está ativa para este motorista")
+            pending = db.execute("SELECT COUNT(*) FROM notes WHERE trip_id=? AND status='pending'", (trip_id,)).fetchone()[0]
+            if pending:
+                raise BusinessError(f"Existem {pending} NF-e sem baixa ou ocorrência")
+            db.execute("UPDATE trips SET status='closed',closed_at=? WHERE id=?", (now(), trip_id))
+            self._audit(db, f"driver:{driver_id}", "closed", "trip", trip_id, {})
+            return {"trip_id": trip_id, "status": "closed"}
