@@ -58,6 +58,12 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertTrue(result["duplicate"])
         self.assertEqual(len(store.calls), 1)
 
+    def test_summary_populates_missing_statuses(self):
+        store = FakePostgres([])
+        store.fetchall = lambda: []
+        self.assertEqual(store.summary()["trips"]["released"], 0)
+        self.assertEqual(store.summary()["notes"]["delivered"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
