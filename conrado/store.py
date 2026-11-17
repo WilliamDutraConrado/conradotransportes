@@ -171,6 +171,19 @@ class Store:
                 "notes": {key: notes.get(key, 0) for key in ("pending", "delivered", "partial", "refused", "occurrence")},
             }
 
+    def trip_detail(self, trip_id: int) -> dict | None:
+        """Conferência administrativa de NF-e individuais, inclusive no mesmo destino."""
+        with self.connection() as db:
+            trip = db.execute("""SELECT t.id,t.label,t.status,v.plate,d.name AS driver
+                FROM trips t JOIN vehicles v ON v.id=t.vehicle_id
+                JOIN drivers d ON d.id=t.driver_id WHERE t.id=?""", (trip_id,)).fetchone()
+            if not trip:
+                return None
+            notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.status,
+                n.gross_weight,n.volumes FROM notes n WHERE n.trip_id=?
+                ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
+            return {**dict(trip), "notes": [dict(n) for n in notes]}
+
     def import_notes(self, trip_id: int, notes: list[dict]) -> dict:
         if not notes or len(notes) > 300:
             raise BusinessError("O lote deve conter de 1 a 300 notas")
