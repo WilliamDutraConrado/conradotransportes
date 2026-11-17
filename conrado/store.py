@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import secrets
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -77,6 +80,21 @@ class Store:
                 id INTEGER PRIMARY KEY, happened_at TEXT NOT NULL, actor TEXT NOT NULL,
                 event TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER NOT NULL,
                 payload TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS driver_auth (
+                driver_id INTEGER PRIMARY KEY REFERENCES drivers(id),
+                salt TEXT NOT NULL, password_hash TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS driver_sessions (
+                token_hash TEXT PRIMARY KEY, driver_id INTEGER NOT NULL REFERENCES drivers(id),
+                expires_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS delivery_events (
+                id TEXT PRIMARY KEY, note_id INTEGER NOT NULL REFERENCES notes(id),
+                driver_id INTEGER NOT NULL REFERENCES drivers(id),
+                status TEXT NOT NULL CHECK(status IN ('delivered','partial','refused','occurrence')),
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
             );
             """)
 
@@ -172,3 +190,86 @@ class Store:
             db.execute("UPDATE trips SET status='released', released_at=? WHERE id=?", (now(), trip_id))
             self._audit(db, "admin", "released", "trip", trip_id, {})
             return {"trip_id": trip_id, "status": "released"}
+
+    def set_driver_password(self, driver_id: int, password: str) -> None:
+        if len(password) < 12:
+            raise BusinessError("A senha precisa ter pelo menos 12 caracteres")
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260_000)
+        with self.connection() as db:
+            driver = db.execute("SELECT id FROM drivers WHERE id=? AND active=1", (driver_id,)).fetchone()
+            if not driver:
+                raise BusinessError("Motorista não encontrado")
+            db.execute("""INSERT INTO driver_auth(driver_id,salt,password_hash) VALUES(?,?,?)
+                       ON CONFLICT(driver_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash""",
+                       (driver_id, salt.hex(), digest.hex()))
+            db.execute("DELETE FROM driver_sessions WHERE driver_id=?", (driver_id,))
+            self._audit(db, "admin", "password_reset", "driver", driver_id, {})
+
+    def authenticate_driver(self, plate: str, password: str) -> str:
+        plate = normalize_plate(plate)
+        with self.connection() as db:
+            row = db.execute("""SELECT d.id,a.salt,a.password_hash FROM drivers d
+                JOIN vehicles v ON v.driver_id=d.id JOIN driver_auth a ON a.driver_id=d.id
+                WHERE v.plate=? AND d.active=1 AND v.active=1""", (plate,)).fetchone()
+            if not row:
+                raise BusinessError("Credenciais inválidas")
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(row["salt"]), 260_000)
+            if not hmac.compare_digest(digest.hex(), row["password_hash"]):
+                raise BusinessError("Credenciais inválidas")
+            token = secrets.token_urlsafe(32)
+            from datetime import timedelta
+            expires = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+            db.execute("INSERT INTO driver_sessions(token_hash,driver_id,expires_at) VALUES(?,?,?)",
+                       (hashlib.sha256(token.encode()).hexdigest(), row["id"], expires))
+            return token
+
+    def driver_by_token(self, token: str) -> int | None:
+        if not token:
+            return None
+        with self.connection() as db:
+            row = db.execute("""SELECT driver_id FROM driver_sessions
+                WHERE token_hash=? AND expires_at>?""",
+                (hashlib.sha256(token.encode()).hexdigest(), now())).fetchone()
+            return int(row["driver_id"]) if row else None
+
+    def driver_trip(self, driver_id: int) -> dict | None:
+        with self.connection() as db:
+            trip = db.execute("""SELECT t.id,t.label,v.plate FROM trips t
+                JOIN vehicles v ON v.id=t.vehicle_id
+                WHERE t.driver_id=? AND t.status='released' ORDER BY t.id LIMIT 1""", (driver_id,)).fetchone()
+            if not trip:
+                return None
+            notes = db.execute("""SELECT id,number,recipient,recipient_id,address,status FROM notes
+                WHERE trip_id=? ORDER BY recipient,address,number""", (trip["id"],)).fetchall()
+            return {**dict(trip), "notes": [dict(n) for n in notes]}
+
+    def record_delivery(self, driver_id: int, note_id: int, event_id: str, status: str, reason: str) -> dict:
+        if status not in ("delivered", "partial", "refused", "occurrence"):
+            raise BusinessError("Situação inválida")
+        if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
+            raise BusinessError("Identificador da operação inválido")
+        if len(reason) > 1000:
+            raise BusinessError("Observação muito longa")
+        if status != "delivered" and len(reason.strip()) < 3:
+            raise BusinessError("Informe o motivo da ocorrência")
+        with self.connection() as db:
+            existing = db.execute("SELECT id,note_id,driver_id FROM delivery_events WHERE id=?", (event_id,)).fetchone()
+            if existing:
+                if existing["driver_id"] != driver_id or existing["note_id"] != note_id:
+                    raise BusinessError("Identificador de operação já utilizado")
+                return {"event_id": event_id, "duplicate": True}
+            note = db.execute("""SELECT n.id,n.status,t.status AS trip_status FROM notes n
+                JOIN trips t ON t.id=n.trip_id WHERE n.id=? AND t.driver_id=?""",
+                (note_id, driver_id)).fetchone()
+            if not note or note["trip_status"] != "released":
+                raise BusinessError("Nota não pertence à viagem ativa deste motorista")
+            # O comprovante fotográfico deve ser associado antes de permitir status entregue.
+            if status == "delivered":
+                raise BusinessError("Entrega concluída exige fotografia do canhoto; recurso ainda em desenvolvimento")
+            db.execute("""INSERT INTO delivery_events(id,note_id,driver_id,status,reason,created_at)
+                VALUES(?,?,?,?,?,?)""", (event_id, note_id, driver_id, status, reason.strip(), now()))
+            db.execute("UPDATE notes SET status=? WHERE id=?", (status, note_id))
+            self._audit(db, f"driver:{driver_id}", "status_changed", "note", note_id,
+                        {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id})
+            return {"event_id": event_id, "duplicate": False, "status": status}
