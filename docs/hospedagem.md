@@ -58,6 +58,12 @@ Instalar `requirements-postgres.txt` no servidor. Executar `infra/supabase/001_s
 no SQL Editor do projeto correto, após conferir o alvo; não há migração automática.
 O bucket privado `canhotos` precisa existir com JPEG/PNG habilitados.
 
+Com as três variáveis de ambiente configuradas em um terminal seguro, rodar
+`python -m conrado.preflight`. A verificação é **somente leitura**: consulta a
+existência das nove tabelas, a ausência de acesso do papel `anon` ao schema
+privado e o estado privado do bucket. Se falhar, informa o ponto pendente sem
+imprimir senhas ou chaves. Não substitui testes reais de importação e entrega.
+
 **Não publicar `conrado.gestao` diretamente na Railway ainda:** o servidor
 HTTP atual foi concebido para `127.0.0.1`, ainda não tem proteção completa
 para internet pública (HTTPS na borda, autenticação administrativa de produção,
