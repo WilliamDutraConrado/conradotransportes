@@ -82,6 +82,17 @@ class PostgresStore:
                 GROUP BY t.id,v.plate,d.name ORDER BY t.id DESC""").fetchall()
             return [dict(row) for row in rows]
 
+    def summary(self):
+        with self.connection() as db:
+            trips = {row["status"]: row["total"] for row in db.execute(
+                "SELECT status,COUNT(*) AS total FROM app.trips GROUP BY status").fetchall()}
+            notes = {row["status"]: row["total"] for row in db.execute(
+                "SELECT status,COUNT(*) AS total FROM app.notes GROUP BY status").fetchall()}
+            return {
+                "trips": {key: trips.get(key, 0) for key in ("draft", "released", "closed")},
+                "notes": {key: notes.get(key, 0) for key in ("pending", "delivered", "partial", "refused", "occurrence")},
+            }
+
     def import_notes(self, trip_id, notes):
         if not 1 <= len(notes) <= 300:
             raise BusinessError("O lote deve conter de 1 a 300 notas")
