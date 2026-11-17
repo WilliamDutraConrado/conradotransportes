@@ -2,11 +2,11 @@
 
 ## Status atual
 
-**Não publicar a aplicação atual em produção.** O código do piloto utiliza SQLite local, um servidor HTTP de desenvolvimento e a foto do canhoto fica gravada no SQLite sem criptografia. O SQL PostgreSQL em `infra/supabase/001_schema.sql` está preparado para revisão, mas ainda **não foi executado**, e o backend **não foi migrado**.
+**Não publicar a aplicação atual em produção.** O piloto local utiliza SQLite e HTTP de desenvolvimento. Existe agora um adaptador PostgreSQL no código, mas a migração SQL ainda **não foi executada** no Supabase e a integração não foi validada em banco real.
 
 Infraestrutura criada em 17/11/2026: projeto gratuito `conrado-entregas-dev` na região São Paulo, com bucket privado `canhotos`, permitindo apenas JPEG e PNG de até 5 MB. Nenhum documento real foi importado e nenhuma cobrança foi autorizada.
 
-O módulo `conrado/supabase_storage.py` implementa a comunicação privada para envio de imagens e geração de URLs temporárias (máximo 5 minutos). Está testado com respostas simuladas, **mas ainda não está integrado ao fluxo de entrega**. Não disponibilize a chave de serviço no APK, painel ou código do GitHub.
+O módulo `conrado/supabase_storage.py` implementa envio privado de imagens e URLs temporárias (máximo 5 minutos); ele está integrado **somente ao novo adaptador PostgreSQL**. Os testes de armazenamento ainda usam respostas simuladas. Não disponibilize a chave de serviço no APK, painel ou código do GitHub.
 
 ## Arquitetura-alvo
 
@@ -43,3 +43,26 @@ Não enviar credenciais para o chat ou colar diretamente no código. Configure-a
 - Aceite de termos operacionais e cuidados da LGPD; permissão para fotos/localização quando aplicável.
 
 O projeto permanece em ambiente experimental enquanto essas verificações estiverem pendentes.
+# Integração PostgreSQL preparada em código (ainda não implantada)
+
+O adaptador `conrado/postgres_store.py` implementa as operações da gestão e do
+motorista usando exclusivamente o schema privado `app`. O backend seleciona o
+banco apenas quando `CONRADO_BACKEND=postgres`, e depende de:
+
+- `DATABASE_URL`: conexão PostgreSQL privada disponibilizada pelo Supabase.
+- `SUPABASE_URL`: URL HTTPS do projeto Supabase.
+- `SUPABASE_SERVICE_ROLE_KEY`: chave secreta **somente no servidor**.
+- `CONRADO_ADMIN_TOKEN`: token administrativo aleatório de 20+ caracteres.
+
+Instalar `requirements-postgres.txt` no servidor. Executar `infra/supabase/001_schema.sql`
+no SQL Editor do projeto correto, após conferir o alvo; não há migração automática.
+O bucket privado `canhotos` precisa existir com JPEG/PNG habilitados.
+
+**Não publicar `conrado.gestao` diretamente na Railway ainda:** o servidor
+HTTP atual foi concebido para `127.0.0.1`, ainda não tem proteção completa
+para internet pública (HTTPS na borda, autenticação administrativa de produção,
+limite de tentativas de login, tratamento centralizado de falhas e monitoramento).
+Os testes com PostgreSQL usam simulações; ainda faltam testes reais de integração
+com o banco Supabase e a execução validada da migração SQL. Não inserir chaves,
+placas reais, XMLs ou fotos no repositório.
+
