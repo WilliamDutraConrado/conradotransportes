@@ -22,6 +22,20 @@ class StoreTest(unittest.TestCase):
         with self.assertRaises(BusinessError):
             self.db.create_driver("Outro", "ABC1D23", "HR")
 
+    def test_indicadores_com_notas_reais_da_base(self):
+        self.assertEqual(self.db.summary()["notes"]["pending"], 0)
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Primeira carga")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
+        self.assertEqual(self.db.summary()["trips"]["draft"], 1)
+        self.assertEqual(self.db.summary()["notes"]["pending"], 1)
+        self.db.release_trip(trip["trip_id"])
+        note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-1234567890", "occurrence", "Avaria")
+        summary = self.db.summary()
+        self.assertEqual(summary["trips"]["released"], 1)
+        self.assertEqual(summary["notes"]["pending"], 0)
+        self.assertEqual(summary["notes"]["occurrence"], 1)
+
     def test_uma_viagem_liberada_por_veiculo(self):
         first = self.db.create_trip(self.driver["vehicle_id"], "Segunda-feira")
         second = self.db.create_trip(self.driver["vehicle_id"], "Quarta-feira")
