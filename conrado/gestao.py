@@ -79,6 +79,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, self.server.db.drivers())
         elif self.path == "/api/trips":
             self._json(200, self.server.db.trips())
+        elif self.path == "/api/summary":
+            self._json(200, self.server.db.summary())
         else:
             self._json(404, {"erro": "Recurso não encontrado"})
 
