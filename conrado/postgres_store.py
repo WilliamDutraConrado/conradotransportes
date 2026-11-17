@@ -223,6 +223,13 @@ class PostgresStore:
                              (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
             return int(row["driver_id"]) if row else None
 
+    def revoke_driver_session(self, token):
+        if not token:
+            return
+        with self.connection() as db:
+            db.execute("DELETE FROM app.driver_sessions WHERE token_hash=%s",
+                       (hashlib.sha256(token.encode()).hexdigest(),))
+
     def driver_trip(self, driver_id):
         with self.connection() as db:
             trip = db.execute("""SELECT t.id,t.label,v.plate FROM app.trips t JOIN app.vehicles v

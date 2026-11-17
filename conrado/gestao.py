@@ -8,6 +8,8 @@ import hmac
 import json
 import os
 import re
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -17,6 +19,8 @@ from conrado.store import BusinessError, Store
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_BODY = 15_000_000
+LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300
 
 
 class Server(ThreadingHTTPServer):
@@ -32,22 +36,45 @@ class Server(ThreadingHTTPServer):
             self.db = PostgresStore(dsn, SupabaseStorage.from_environment())
         else:
             self.db = Store(database)
+        self._login_failures: dict[str, list[float]] = {}
+        self._login_lock = threading.Lock()
+
+    def login_blocked(self, client: str) -> bool:
+        threshold = time.monotonic() - LOGIN_WINDOW_SECONDS
+        with self._login_lock:
+            recent = [attempt for attempt in self._login_failures.get(client, []) if attempt >= threshold]
+            self._login_failures[client] = recent
+            return len(recent) >= LOGIN_ATTEMPTS
+
+    def record_login_failure(self, client: str) -> None:
+        with self._login_lock:
+            self._login_failures.setdefault(client, []).append(time.monotonic())
+
+    def clear_login_failures(self, client: str) -> None:
+        with self._login_lock:
+            self._login_failures.pop(client, None)
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _respond(self, status: int, payload: bytes, content_type: str):
+    def _respond(self, status: int, payload: bytes, content_type: str, extra_headers: dict | None = None):
         self.send_response(status)
         for key, value in (
             ("Content-Type", content_type), ("Content-Length", str(len(payload))),
             ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
-            ("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'"),
+            ("X-Frame-Options", "DENY"), ("Referrer-Policy", "no-referrer"),
+            ("Permissions-Policy", "camera=(self), geolocation=(), microphone=()"),
+            ("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+             "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
         ):
+            self.send_header(key, value)
+        for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
 
-    def _json(self, status: int, data: dict | list):
-        self._respond(status, json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+    def _json(self, status: int, data: dict | list, extra_headers: dict | None = None):
+        self._respond(status, json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8",
+                      extra_headers)
 
     def _allowed(self) -> bool:
         authorization = self.headers.get("Authorization", "")
@@ -107,7 +134,23 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise BusinessError("Formato inválido")
             if self.path == "/api/driver/login":
-                result = {"token": self.server.db.authenticate_driver(body["plate"], body["password"])}
+                client = self.client_address[0]
+                if self.server.login_blocked(client):
+                    self._json(429, {"erro": "Muitas tentativas. Aguarde cinco minutos."},
+                               {"Retry-After": str(LOGIN_WINDOW_SECONDS)})
+                    return
+                try:
+                    token = self.server.db.authenticate_driver(body["plate"], body["password"])
+                except BusinessError:
+                    self.server.record_login_failure(client)
+                    self._json(401, {"erro": "Credenciais inválidas"})
+                    return
+                self.server.clear_login_failures(client)
+                result = {"token": token}
+            elif self.path == "/api/driver/logout":
+                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                self.server.db.revoke_driver_session(token)
+                result = {"logged_out": True}
             elif (match := re.fullmatch(r"/api/driver/notes/(\d+)/status", self.path)):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 driver_id = self.server.db.driver_by_token(token)

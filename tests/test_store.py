@@ -135,6 +135,15 @@ class StoreTest(unittest.TestCase):
         self.db.set_driver_password(self.driver["driver_id"], "OutraSenhaSegura2026!")
         self.assertIsNone(self.db.driver_by_token(token))
 
+    def test_motorista_pode_encerrar_a_propria_sessao(self):
+        self.db.set_driver_password(self.driver["driver_id"], "SenhaIndividualSegura2026!")
+        token = self.db.authenticate_driver("ABC1D23", "SenhaIndividualSegura2026!")
+        self.assertEqual(self.db.driver_by_token(token), self.driver["driver_id"])
+
+        self.db.revoke_driver_session(token)
+
+        self.assertIsNone(self.db.driver_by_token(token))
+
     def test_nao_permite_baixa_entregue_sem_foto(self):
         trip = self.db.create_trip(self.driver["vehicle_id"], "Primeira carga")
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])

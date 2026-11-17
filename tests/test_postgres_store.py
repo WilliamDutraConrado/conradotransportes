@@ -93,6 +93,15 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(metric["delivery_rate"], 60.0)
         self.assertIn("app.drivers", store.calls[0][0])
 
+    def test_revoke_driver_session_hashes_token(self):
+        store = FakePostgres([])
+
+        store.revoke_driver_session("token-secreto")
+
+        self.assertEqual(len(store.calls), 1)
+        self.assertIn("DELETE FROM app.driver_sessions", store.calls[0][0])
+        self.assertNotIn("token-secreto", store.calls[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

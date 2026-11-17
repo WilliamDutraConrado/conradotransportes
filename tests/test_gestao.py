@@ -24,18 +24,21 @@ class APITest(unittest.TestCase):
         self.thread.join()
         self.folder.cleanup()
 
-    def request(self, path, body=None, authorized=True):
+    def request(self, path, body=None, authorized=True, with_headers=False, auth_token=None):
         headers = {"Content-Type": "application/json"}
-        if authorized:
+        if auth_token is not None:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        elif authorized:
             headers["Authorization"] = "Bearer segredo-para-teste-1234567890"
         request = Request(f"http://127.0.0.1:{self.server.server_port}{path}",
                           data=json.dumps(body).encode() if body is not None else None,
                           headers=headers)
         try:
             with urlopen(request, timeout=5) as response:
-                return response.status, json.load(response)
+                result = (response.status, json.load(response), dict(response.headers))
         except HTTPError as exc:
-            return exc.code, json.load(exc)
+            result = (exc.code, json.load(exc), dict(exc.headers))
+        return result if with_headers else result[:2]
 
     def test_requer_token_e_cadastra_motorista(self):
         status, _ = self.request("/api/drivers", authorized=False)
@@ -50,6 +53,45 @@ class APITest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(productivity[0]["plate"], "ABC1D23")
         self.assertEqual(self.request("/api/productivity", authorized=False)[0], 401)
+
+    def test_login_limita_tentativas_e_retorna_retry_after(self):
+        _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
+        self.assertEqual(self.request(f"/api/drivers/{driver['driver_id']}/password",
+                                      {"password": "SenhaIndividualSegura2026!"})[0], 200)
+        for _ in range(5):
+            status, result = self.request("/api/driver/login", {"plate": "ABC1D23", "password": "incorreta"},
+                                          authorized=False)
+            self.assertEqual(status, 401)
+            self.assertEqual(result["erro"], "Credenciais inválidas")
+        status, result, headers = self.request("/api/driver/login",
+                                               {"plate": "ABC1D23", "password": "incorreta"},
+                                               authorized=False, with_headers=True)
+        self.assertEqual(status, 429)
+        self.assertEqual(headers["Retry-After"], "300")
+        self.assertIn("cinco minutos", result["erro"])
+
+    def test_respostas_incluem_cabecalhos_de_seguranca(self):
+        status, _, headers = self.request("/api/drivers", with_headers=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
+        self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+        self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+
+    def test_logout_revoga_sessao_do_motorista(self):
+        _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
+        self.request(f"/api/drivers/{driver['driver_id']}/password", {"password": "SenhaIndividualSegura2026!"})
+        status, login = self.request("/api/driver/login",
+                                     {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+                                     authorized=False)
+        self.assertEqual(status, 200)
+        token = login["token"]
+        self.assertEqual(self.request("/api/driver/trip", authorized=False, auth_token=token)[0], 200)
+
+        status, result = self.request("/api/driver/logout", {}, authorized=False, auth_token=token)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["logged_out"])
+        self.assertEqual(self.request("/api/driver/trip", authorized=False, auth_token=token)[0], 401)
 
     def test_nao_libera_viagem_sem_notas(self):
         _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})

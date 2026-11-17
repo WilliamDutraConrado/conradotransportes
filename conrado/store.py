@@ -360,6 +360,13 @@ class Store:
                 (hashlib.sha256(token.encode()).hexdigest(), now())).fetchone()
             return int(row["driver_id"]) if row else None
 
+    def revoke_driver_session(self, token: str) -> None:
+        if not token:
+            return
+        with self.connection() as db:
+            db.execute("DELETE FROM driver_sessions WHERE token_hash=?",
+                       (hashlib.sha256(token.encode()).hexdigest(),))
+
     def driver_trip(self, driver_id: int) -> dict | None:
         with self.connection() as db:
             trip = db.execute("""SELECT t.id,t.label,v.plate FROM trips t

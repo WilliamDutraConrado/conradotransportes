@@ -69,7 +69,9 @@ imprimir senhas ou chaves. Não substitui testes reais de importação e entrega
 **Não publicar `conrado.gestao` diretamente na Railway ainda:** o servidor
 HTTP atual foi concebido para `127.0.0.1`, ainda não tem proteção completa
 para internet pública (HTTPS na borda, autenticação administrativa de produção,
-limite de tentativas de login, tratamento centralizado de falhas e monitoramento).
+tratamento centralizado de falhas e monitoramento). O piloto já limita tentativas
+de login do motorista e revoga sessões no logout, mas esses controles são apenas
+uma parte da proteção necessária.
 Os testes com PostgreSQL usam simulações; ainda faltam testes reais de integração
 com o banco Supabase e a execução validada da migração SQL. Não inserir chaves,
 placas reais, XMLs ou fotos no repositório.
