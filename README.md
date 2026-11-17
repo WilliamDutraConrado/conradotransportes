@@ -24,4 +24,15 @@ python3 -m unittest discover -s tests -v
 
 ## Estrutura de dados (em desenvolvimento)
 
-O módulo `conrado/store.py` já implementa cadastro de motoristas/veículos, viagens em rascunho, importação transacional de notas e liberação de uma viagem por placa. Ele usa SQLite local, mantém um registro de eventos administrativos e **ainda não está ligado à interface web**. Nenhum motorista ou placa real vem pré-cadastrado. Não utilize essa estrutura para dados operacionais reais até concluirmos autenticação, autorização, backups e gestão de evidências.
+O módulo `conrado/store.py` implementa cadastro de motoristas/veículos, viagens em rascunho, importação transacional de notas e liberação de uma viagem por placa. Ele usa SQLite local, mantém um registro de eventos administrativos e está ligado à interface experimental de gestão. Nenhum motorista ou placa real vem pré-cadastrado. Não utilize essa estrutura para dados operacionais reais até concluirmos autenticação individual, autorização, backups e gestão de evidências.
+
+## Gestão de viagens em teste
+
+Agora o módulo de dados também possui interface própria, protegida por chave administrativa:
+
+```bash
+export CONRADO_ADMIN_TOKEN='substitua-por-uma-chave-aleatoria-com-mais-de-20-caracteres'
+python3 -m conrado.gestao
+```
+
+Abra `http://127.0.0.1:8766` no **mesmo computador**. Insira a chave, cadastre motoristas e veículos, crie rascunhos de viagens, importe os XMLs correspondentes e libere a viagem após conferência. Dados são salvos em `conrado_local.sqlite` local (ignorado pelo Git). **Não use esta versão em produção:** a chave única administrativa não substitui a gestão completa de usuários e permissões, não há HTTPS externo nem backup automatizado.
