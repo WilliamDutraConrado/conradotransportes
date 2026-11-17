@@ -81,6 +81,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, self.server.db.trips())
         elif self.path == "/api/summary":
             self._json(200, self.server.db.summary())
+        elif (match := re.fullmatch(r"/api/trips/(\d+)/detail", self.path)):
+            detail = self.server.db.trip_detail(int(match.group(1)))
+            if detail is None:
+                self._json(404, {"erro": "Viagem não encontrada"})
+            else:
+                self._json(200, detail)
         else:
             self._json(404, {"erro": "Recurso não encontrado"})
 
