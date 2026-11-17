@@ -1,4 +1,5 @@
 import json
+import base64
 import tempfile
 import threading
 import unittest
@@ -7,6 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from conrado.gestao import Server
+from test_importer import xml
 
 
 class APITest(unittest.TestCase):
@@ -50,6 +52,17 @@ class APITest(unittest.TestCase):
         _, trip = self.request("/api/trips", {"vehicle_id": driver["vehicle_id"], "label": "Primeira carga"})
         status, _ = self.request(f"/api/trips/{trip['trip_id']}/release", {})
         self.assertEqual(status, 400)
+
+    def test_fluxo_completo_importar_e_liberar(self):
+        _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
+        _, trip = self.request("/api/trips", {"vehicle_id": driver["vehicle_id"], "label": "Primeira carga"})
+        payload = {"arquivos": [{"name": "teste.xml", "base64": base64.b64encode(xml("1" * 44)).decode()}]}
+        status, result = self.request(f"/api/trips/{trip['trip_id']}/import", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["imported"], 1)
+        status, result = self.request(f"/api/trips/{trip['trip_id']}/release", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["status"], "released")
 
 
 if __name__ == "__main__":
