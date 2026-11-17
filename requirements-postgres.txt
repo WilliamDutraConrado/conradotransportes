@@ -1,0 +1,2 @@
+# Instalar no backend Railway; não é necessário no piloto SQLite local.
+psycopg[binary]>=3.2,<4
