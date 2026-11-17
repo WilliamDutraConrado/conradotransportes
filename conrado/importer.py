@@ -22,6 +22,23 @@ def _value(parent: ET.Element, xpath: str) -> str:
     return (parent.findtext(xpath, default="", namespaces=NS) or "").strip()
 
 
+def _seller(inf: ET.Element, observation: str) -> str:
+    """Extrai vendedor quando a NF-e o informa em campo livre, sem inventar valor."""
+    for field in inf.findall("n:infAdic/n:obsCont", NS):
+        label = (field.get("xCampo") or "").strip()
+        if re.search(r"(?i)\b(?:vendedor|vendedora|representante)\b", label):
+            value = _value(field, "n:xTexto")
+            if value:
+                return value[:100]
+    match = re.search(
+        r"(?i)\b(?:vendedor|vendedora|representante)\s*[:#-]?\s*"
+        r"([A-ZÀ-ÖØ-öø-ÿ][A-ZÀ-ÖØ-öø-ÿ .'-]{1,99}?)"
+        r"(?=\s+(?:placa|embarque|pedido|rota|carga)\b|[;|\r\n]|$)",
+        observation,
+    )
+    return match.group(1).strip() if match else ""
+
+
 def parse_nfe(data: bytes, placa_regex: str) -> dict:
     """Extrai campos necessários ao planejamento sem confiar em XML remoto."""
     if len(data) > MAX_BYTES:
@@ -62,12 +79,31 @@ def parse_nfe(data: bytes, placa_regex: str) -> dict:
         _value(endereco, f"n:{campo}")
         for campo in ("xLgr", "nro", "xCpl", "xBairro", "xMun", "UF", "CEP")
     ]
+    items = []
+    for detail in inf.findall("n:det", NS):
+        product = detail.find("n:prod", NS)
+        if product is None:
+            continue
+        code = _value(product, "n:cProd")
+        description = _value(product, "n:xProd")
+        quantity = _value(product, "n:qCom")
+        unit = _value(product, "n:uCom")
+        if code or description:
+            items.append({
+                "codigo": code[:60],
+                "descricao": description[:200],
+                "quantidade": quantity[:30],
+                "unidade": unit[:20],
+            })
     return {
         "chave": chave[3:],
         "numero": _value(inf, "n:ide/n:nNF"),
         "destinatario_id": cnpj,
         "destinatario": _value(inf, "n:dest/n:xNome"),
         "endereco": ", ".join(x for x in endereco_partes if x),
+        "cidade": _value(endereco, "n:xMun"),
+        "vendedor": _seller(inf, observacao),
+        "itens": items,
         "placa": placa,
         "peso_bruto_kg": sum(float(_value(vol, "n:pesoB") or 0) for vol in inf.findall("n:transp/n:vol", NS)),
         "volumes": sum(int(_value(vol, "n:qVol") or 0) for vol in inf.findall("n:transp/n:vol", NS)),

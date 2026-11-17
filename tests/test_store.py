@@ -50,15 +50,26 @@ class StoreTest(unittest.TestCase):
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
-        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-historico-01", "occurrence", "Caixa avariada")
+        result = self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-historico-01", "occurrence", "Falta de produto",
+            arrival_time="11:00", affected_item="01 (uma) caixa - Whey UHT • CÓD.: 1940",
+        )
         self.db.record_delivery(self.driver["driver_id"], note_id, "evento-historico-02", "partial", "Cliente recebeu parcialmente")
 
         events = self.db.trip_detail(trip["trip_id"])["notes"][0]["events"]
         self.assertEqual([event["status"] for event in events], ["occurrence", "partial"])
-        self.assertEqual(events[0]["reason"], "Caixa avariada")
+        self.assertEqual(events[0]["reason"], "Falta de produto")
         self.assertEqual(events[0]["driver"], "Motorista Teste")
         self.assertFalse(events[0]["has_evidence"])
         self.assertNotIn("note_id", events[0])
+        self.assertIn("Cliente: Cliente Teste", result["share_text"])
+        self.assertIn("NF: 123", result["share_text"])
+        self.assertIn("Cidade: Divinópolis", result["share_text"])
+        self.assertIn("Chegada no cliente: 11:00", result["share_text"])
+        self.assertIn("Item: 01 (uma) caixa - Whey UHT • CÓD.: 1940", result["share_text"])
+        self.assertIn("Vendedor: Ian Silva", result["share_text"])
+        self.assertIn("Motorista: Motorista Teste", result["share_text"])
+        self.assertIn("Placa: ABC-1D23", result["share_text"])
 
     def test_uma_viagem_liberada_por_veiculo(self):
         first = self.db.create_trip(self.driver["vehicle_id"], "Segunda-feira")

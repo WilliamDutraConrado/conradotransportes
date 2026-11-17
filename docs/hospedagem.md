@@ -55,7 +55,9 @@ banco apenas quando `CONRADO_BACKEND=postgres`, e depende de:
 - `CONRADO_ADMIN_TOKEN`: token administrativo aleatório de 20+ caracteres.
 
 Instalar `requirements-postgres.txt` no servidor. Executar `infra/supabase/001_schema.sql`
-no SQL Editor do projeto correto, após conferir o alvo; não há migração automática.
+no SQL Editor de uma base vazia, após conferir o alvo. Em uma base de desenvolvimento
+que já recebeu a versão inicial, executar depois `infra/supabase/002_occurrence_template.sql`.
+Não há migração automática.
 O bucket privado `canhotos` precisa existir com JPEG/PNG habilitados.
 
 Com as três variáveis de ambiente configuradas em um terminal seguro, rodar

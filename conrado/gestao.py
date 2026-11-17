@@ -113,7 +113,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(401, {"erro": "Sessão do motorista inválida"})
                     return
                 result = self.server.db.record_delivery(driver_id, int(match.group(1)),
-                    body["event_id"], body["status"], body.get("reason", ""), body.get("photo_base64"))
+                    body["event_id"], body["status"], body.get("reason", ""), body.get("photo_base64"),
+                    body.get("arrival_time", ""), body.get("affected_item", ""), body.get("seller_name", ""))
             elif (match := re.fullmatch(r"/api/driver/trips/(\d+)/close", self.path)):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 driver_id = self.server.db.driver_by_token(token)

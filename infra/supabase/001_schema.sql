@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS app.notes (
     recipient_id varchar(20) NOT NULL,
     recipient text NOT NULL,
     address text NOT NULL,
+    city varchar(100) NOT NULL DEFAULT '',
+    seller varchar(100) NOT NULL DEFAULT '',
+    items jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(items) = 'array'),
     gross_weight numeric(14,3) NOT NULL DEFAULT 0,
     volumes integer NOT NULL DEFAULT 0,
     status varchar(12) NOT NULL DEFAULT 'pending'
@@ -70,6 +73,9 @@ CREATE TABLE IF NOT EXISTS app.delivery_events (
     driver_id bigint NOT NULL REFERENCES app.drivers(id),
     status varchar(12) NOT NULL CHECK (status IN ('delivered','partial','refused','occurrence')),
     reason varchar(1000) NOT NULL DEFAULT '',
+    arrival_time varchar(5) NOT NULL DEFAULT '',
+    affected_item varchar(500) NOT NULL DEFAULT '',
+    seller_name varchar(100) NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

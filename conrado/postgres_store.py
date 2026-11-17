@@ -16,7 +16,7 @@ import secrets
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from conrado.store import BusinessError, normalize_plate
+from conrado.store import BusinessError, normalize_plate, occurrence_message
 from conrado.supabase_storage import StorageError, detect_image
 
 
@@ -100,10 +100,11 @@ class PostgresStore:
                 JOIN app.drivers d ON d.id=t.driver_id WHERE t.id=%s""", (trip_id,)).fetchone()
             if not trip:
                 return None
-            notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.status,
+            notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.city,n.seller,n.items,n.status,
                 n.gross_weight,n.volumes FROM app.notes n WHERE n.trip_id=%s
                 ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
-            events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.created_at::text AS created_at,
+            events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.arrival_time,
+                e.affected_item,e.seller_name,e.created_at::text AS created_at,
                 d.name AS driver,EXISTS (
                     SELECT 1 FROM app.evidence x WHERE x.event_id=e.id
                 ) AS has_evidence
@@ -140,9 +141,12 @@ class PostgresStore:
                 if exists:
                     raise BusinessError("NF-e já vinculada a uma viagem ativa")
             for n in notes:
-                db.execute("""INSERT INTO app.notes(trip_id,access_key,number,recipient_id,recipient,address,gross_weight,volumes)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""", (trip_id, n["chave"], n["numero"], n["destinatario_id"],
-                    n["destinatario"], n["endereco"], n["peso_bruto_kg"], n["volumes"]))
+                db.execute("""INSERT INTO app.notes(trip_id,access_key,number,recipient_id,recipient,address,
+                    city,seller,items,gross_weight,volumes)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)""",
+                    (trip_id, n["chave"], n["numero"], n["destinatario_id"], n["destinatario"], n["endereco"],
+                     n.get("cidade", ""), n.get("vendedor", ""), json.dumps(n.get("itens", []), ensure_ascii=False),
+                     n["peso_bruto_kg"], n["volumes"]))
             self._audit(db, "admin", "imported", "trip", trip_id, {"count": len(notes)})
             return {"trip_id": trip_id, "imported": len(notes)}
 
@@ -204,17 +208,22 @@ class PostgresStore:
                 (driver_id,)).fetchone()
             if not trip:
                 return None
-            notes = db.execute("""SELECT id,number,recipient,recipient_id,address,status FROM app.notes
+            notes = db.execute("""SELECT id,number,recipient,recipient_id,address,city,seller,items,status FROM app.notes
                 WHERE trip_id=%s ORDER BY recipient,address,number""", (trip["id"],)).fetchall()
             return {**dict(trip), "notes": [dict(n) for n in notes]}
 
-    def record_delivery(self, driver_id, note_id, event_id, status, reason, photo_base64=None):
+    def record_delivery(self, driver_id, note_id, event_id, status, reason, photo_base64=None,
+                        arrival_time="", affected_item="", seller_name=""):
         if status not in ("delivered", "partial", "refused", "occurrence"):
             raise BusinessError("Situação inválida")
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
             raise BusinessError("Identificador da operação inválido")
         if len(reason) > 1000 or (status != "delivered" and len(reason.strip()) < 3):
             raise BusinessError("Informe um motivo válido para a ocorrência")
+        if arrival_time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", arrival_time):
+            raise BusinessError("Horário de chegada inválido")
+        if len(affected_item) > 500 or len(seller_name) > 100:
+            raise BusinessError("Detalhes da ocorrência muito longos")
         photo = None
         if photo_base64:
             try:
@@ -230,13 +239,19 @@ class PostgresStore:
                 if existing["note_id"] != note_id or existing["driver_id"] != driver_id:
                     raise BusinessError("Identificador de operação já utilizado")
                 return {"event_id": event_id, "duplicate": True}
-            note = db.execute("""SELECT n.status,t.id AS trip_id,t.status AS trip_status FROM app.notes n
-                JOIN app.trips t ON t.id=n.trip_id WHERE n.id=%s AND t.driver_id=%s FOR UPDATE OF n""",
+            note = db.execute("""SELECT n.status,n.number,n.recipient,n.city,n.seller,t.id AS trip_id,
+                t.status AS trip_status,v.plate,d.name AS driver FROM app.notes n
+                JOIN app.trips t ON t.id=n.trip_id JOIN app.vehicles v ON v.id=t.vehicle_id
+                JOIN app.drivers d ON d.id=t.driver_id
+                WHERE n.id=%s AND t.driver_id=%s FOR UPDATE OF n""",
                 (note_id, driver_id)).fetchone()
             if not note or note["trip_status"] != "released":
                 raise BusinessError("Nota não pertence à viagem ativa deste motorista")
-            db.execute("""INSERT INTO app.delivery_events(id,note_id,driver_id,status,reason)
-                VALUES (%s,%s,%s,%s,%s)""", (event_id, note_id, driver_id, status, reason.strip()))
+            created_at = datetime.now(timezone.utc)
+            db.execute("""INSERT INTO app.delivery_events(id,note_id,driver_id,status,reason,arrival_time,
+                affected_item,seller_name,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (event_id, note_id, driver_id, status, reason.strip(), arrival_time,
+                 affected_item.strip(), seller_name.strip(), created_at))
             if photo is not None:
                 # Upload privado; se o commit do banco falhar, o objeto órfão será
                 # tratado futuramente por rotina de limpeza idempotente.
@@ -248,8 +263,11 @@ class PostgresStore:
                     VALUES (%s,%s,%s,%s,%s)""", (note_id, event_id, uploaded.path, uploaded.mime, uploaded.sha256))
             db.execute("UPDATE app.notes SET status=%s WHERE id=%s", (status, note_id))
             self._audit(db, f"driver:{driver_id}", "status_changed", "note", note_id,
-                        {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id})
-            return {"event_id": event_id, "duplicate": False, "status": status}
+                        {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id,
+                         "arrival_time": arrival_time, "affected_item": affected_item.strip()})
+            message = occurrence_message(dict(note), status, reason, created_at, arrival_time,
+                                         affected_item, seller_name)
+            return {"event_id": event_id, "duplicate": False, "status": status, "share_text": message}
 
     def close_driver_trip(self, driver_id, trip_id):
         with self.connection() as db:

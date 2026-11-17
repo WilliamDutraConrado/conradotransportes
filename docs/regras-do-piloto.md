@@ -18,6 +18,8 @@ O administrador importa manualmente somente os XMLs da carga já conferida e doc
 - O motorista pode seguir viagem com ocorrência aberta; sua resolução pode ficar pendente.
 - Registrar motivo, quantidade afetada quando aplicável, observação e evidências.
 - O aplicativo poderá preparar texto com nota, cliente, placa e motivo para compartilhar **manualmente** no grupo interno do WhatsApp. Não enviar automaticamente à indústria.
+- O texto também aproveita cidade, vendedor e produtos quando esses dados existirem no XML. Como vendedor e descrição de embalagem podem estar em campos livres, o motorista deve revisar antes do envio.
+- Horário de chegada e quantidade afetada são confirmados pelo motorista; o sistema sugere o horário atual e oferece os itens da NF-e para seleção.
 - Alterações ficam registradas com autor, momento e valores anteriores/novos; depois do encerramento, apenas administração altera ou resolve tratativas.
 
 ## Segurança e operação offline

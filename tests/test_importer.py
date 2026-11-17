@@ -14,9 +14,10 @@ def xml(chave: str, placa: str = "ABC1D23") -> bytes:
   <ide><nNF>123</nNF></ide>
   <dest><CNPJ>12345678000190</CNPJ><xNome>Cliente Teste</xNome>
     <enderDest><xLgr>Rua Teste</xLgr><nro>10</nro><xMun>Divinópolis</xMun><UF>MG</UF></enderDest>
-  </dest><transp><vol><qVol>2</qVol><pesoB>10.5</pesoB></vol>
+  </dest><det nItem="1"><prod><cProd>1940</cProd><xProd>Whey UHT</xProd><qCom>12</qCom><uCom>UN</uCom></prod></det>
+  <transp><vol><qVol>2</qVol><pesoB>10.5</pesoB></vol>
   <vol><qVol>1</qVol><pesoB>5.25</pesoB></vol></transp>
-  <infAdic><infCpl>VEICULO PLACA: {placa}</infCpl></infAdic>
+  <infAdic><infCpl>VEICULO PLACA: {placa}; VENDEDOR: Ian Silva</infCpl></infAdic>
 </infNFe></NFe></nfeProc>'''.encode()
 
 
@@ -27,6 +28,10 @@ class ImportadorTest(unittest.TestCase):
         self.assertEqual(nota["numero"], "123")
         self.assertEqual(nota["peso_bruto_kg"], 15.75)
         self.assertEqual(nota["volumes"], 3)
+        self.assertEqual(nota["cidade"], "Divinópolis")
+        self.assertEqual(nota["vendedor"], "Ian Silva")
+        self.assertEqual(nota["itens"], [{"codigo": "1940", "descricao": "Whey UHT",
+                                          "quantidade": "12", "unidade": "UN"}])
 
     def test_duplicata_e_placa_ausente(self):
         with TemporaryDirectory() as pasta:
