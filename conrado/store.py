@@ -159,6 +159,18 @@ class Store:
                                 GROUP BY t.id ORDER BY t.id DESC""")
             return [dict(row) for row in rows]
 
+    def summary(self) -> dict:
+        """Indicadores da operação a partir das NF-e efetivamente importadas."""
+        with self.connection() as db:
+            trips = {row["status"]: row["total"] for row in db.execute(
+                "SELECT status,COUNT(*) AS total FROM trips GROUP BY status")}
+            notes = {row["status"]: row["total"] for row in db.execute(
+                "SELECT status,COUNT(*) AS total FROM notes GROUP BY status")}
+            return {
+                "trips": {key: trips.get(key, 0) for key in ("draft", "released", "closed")},
+                "notes": {key: notes.get(key, 0) for key in ("pending", "delivered", "partial", "refused", "occurrence")},
+            }
+
     def import_notes(self, trip_id: int, notes: list[dict]) -> dict:
         if not notes or len(notes) > 300:
             raise BusinessError("O lote deve conter de 1 a 300 notas")
