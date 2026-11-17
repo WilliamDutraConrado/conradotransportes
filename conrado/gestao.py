@@ -23,7 +23,15 @@ class Server(ThreadingHTTPServer):
     def __init__(self, address, token: str, database: Path):
         super().__init__(address, Handler)
         self.token = token
-        self.db = Store(database)
+        if os.environ.get("CONRADO_BACKEND", "sqlite") == "postgres":
+            from conrado.postgres_store import PostgresStore
+            from conrado.supabase_storage import SupabaseStorage
+            dsn = os.environ.get("DATABASE_URL", "")
+            if not dsn:
+                raise RuntimeError("DATABASE_URL não configurada para PostgreSQL")
+            self.db = PostgresStore(dsn, SupabaseStorage.from_environment())
+        else:
+            self.db = Store(database)
 
 
 class Handler(BaseHTTPRequestHandler):
