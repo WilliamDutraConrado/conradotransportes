@@ -36,6 +36,14 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(summary["notes"]["pending"], 0)
         self.assertEqual(summary["notes"]["occurrence"], 1)
 
+    def test_detalhe_mantem_nfs_do_mesmo_destinatario_separadas(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Carga com duas notas")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX), parse_nfe(xml("2" * 44), REGEX)])
+        detail = self.db.trip_detail(trip["trip_id"])
+        self.assertEqual(len(detail["notes"]), 2)
+        self.assertEqual(len({n["id"] for n in detail["notes"]}), 2)
+        self.assertIsNone(self.db.trip_detail(99999))
+
     def test_uma_viagem_liberada_por_veiculo(self):
         first = self.db.create_trip(self.driver["vehicle_id"], "Segunda-feira")
         second = self.db.create_trip(self.driver["vehicle_id"], "Quarta-feira")
