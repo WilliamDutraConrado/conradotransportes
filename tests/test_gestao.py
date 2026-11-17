@@ -46,6 +46,10 @@ class APITest(unittest.TestCase):
         status, result = self.request("/api/drivers")
         self.assertEqual(status, 200)
         self.assertEqual(len(result), 1)
+        status, productivity = self.request("/api/productivity")
+        self.assertEqual(status, 200)
+        self.assertEqual(productivity[0]["plate"], "ABC1D23")
+        self.assertEqual(self.request("/api/productivity", authorized=False)[0], 401)
 
     def test_nao_libera_viagem_sem_notas(self):
         _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})

@@ -81,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, self.server.db.trips())
         elif self.path == "/api/summary":
             self._json(200, self.server.db.summary())
+        elif self.path == "/api/productivity":
+            self._json(200, self.server.db.driver_productivity())
         elif (match := re.fullmatch(r"/api/trips/(\d+)/detail", self.path)):
             detail = self.server.db.trip_detail(int(match.group(1)))
             if detail is None:

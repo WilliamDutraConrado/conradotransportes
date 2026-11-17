@@ -93,6 +93,28 @@ class PostgresStore:
                 "notes": {key: notes.get(key, 0) for key in ("pending", "delivered", "partial", "refused", "occurrence")},
             }
 
+    def driver_productivity(self):
+        with self.connection() as db:
+            rows = db.execute("""SELECT d.id AS driver_id,d.name,v.plate,
+                COUNT(DISTINCT t.id) AS trips,
+                COUNT(DISTINCT CASE WHEN t.status='released' THEN t.id END) AS in_route,
+                COUNT(DISTINCT CASE WHEN t.status='closed' THEN t.id END) AS closed_trips,
+                COUNT(n.id) AS notes,
+                SUM(CASE WHEN n.status='pending' THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN n.status='delivered' THEN 1 ELSE 0 END) AS delivered,
+                SUM(CASE WHEN n.status IN ('partial','refused','occurrence') THEN 1 ELSE 0 END) AS issues
+                FROM app.drivers d JOIN app.vehicles v ON v.driver_id=d.id
+                LEFT JOIN app.trips t ON t.driver_id=d.id AND t.vehicle_id=v.id
+                LEFT JOIN app.notes n ON n.trip_id=t.id
+                WHERE d.active=true AND v.active=true
+                GROUP BY d.id,d.name,v.id,v.plate ORDER BY d.name,v.plate""").fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                item["delivery_rate"] = round(100 * item["delivered"] / item["notes"], 1) if item["notes"] else 0.0
+                result.append(item)
+            return result
+
     def trip_detail(self, trip_id):
         with self.connection() as db:
             trip = db.execute("""SELECT t.id,t.label,t.status,v.plate,d.name AS driver

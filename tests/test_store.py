@@ -36,6 +36,23 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(summary["notes"]["pending"], 0)
         self.assertEqual(summary["notes"]["occurrence"], 1)
 
+    def test_produtividade_separa_entregas_pendencias_e_ocorrencias(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Rota de produtividade")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX), parse_nfe(xml("2" * 44), REGEX)])
+        self.db.release_trip(trip["trip_id"])
+        note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-produtividade", "occurrence", "Avaria")
+
+        metric = self.db.driver_productivity()[0]
+
+        self.assertEqual(metric["trips"], 1)
+        self.assertEqual(metric["in_route"], 1)
+        self.assertEqual(metric["notes"], 2)
+        self.assertEqual(metric["pending"], 1)
+        self.assertEqual(metric["issues"], 1)
+        self.assertEqual(metric["delivered"], 0)
+        self.assertEqual(metric["delivery_rate"], 0.0)
+
     def test_detalhe_mantem_nfs_do_mesmo_destinatario_separadas(self):
         trip = self.db.create_trip(self.driver["vehicle_id"], "Carga com duas notas")
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX), parse_nfe(xml("2" * 44), REGEX)])

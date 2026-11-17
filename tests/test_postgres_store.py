@@ -81,6 +81,18 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertNotIn("note_id", detail["notes"][0]["events"][0])
         self.assertIn("app.delivery_events", store.calls[2][0])
 
+    def test_driver_productivity_calculates_delivery_rate(self):
+        store = FakePostgres([[{
+            "driver_id": 1, "name": "Motorista", "plate": "ABC1D23", "trips": 2,
+            "in_route": 1, "closed_trips": 1, "notes": 5, "pending": 1,
+            "delivered": 3, "issues": 1,
+        }]])
+
+        metric = store.driver_productivity()[0]
+
+        self.assertEqual(metric["delivery_rate"], 60.0)
+        self.assertIn("app.drivers", store.calls[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()
