@@ -18,6 +18,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+          cache-dependency-path: requirements-postgres.txt
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
