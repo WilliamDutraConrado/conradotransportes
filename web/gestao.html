@@ -1,29 +1,141 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conrado Entregas • Gestão</title>
-<style>
-:root{font:15px system-ui;color:#192d49;background:#f3f6fa}*{box-sizing:border-box}body{margin:0}header{background:#112b4d;color:white;padding:24px max(24px,calc((100vw - 1100px)/2))}h1{margin:0;font-size:24px}main{max-width:1100px;margin:24px auto;padding:0 24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:white;border:1px solid #dce5ee;border-radius:14px;padding:22px;margin-bottom:18px;box-shadow:0 3px 12px #1020300b}h2{font-size:19px;margin:0 0 16px}label{display:block;font-weight:600;margin:10px 0}input,select{display:block;width:100%;padding:11px;border:1px solid #ccd6e0;border-radius:8px;margin-top:5px;background:white}button{border:0;background:#126bb4;color:white;padding:12px 17px;border-radius:9px;font-weight:700;cursor:pointer}button.secondary{background:#355777}button:disabled{opacity:.5}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #edf1f6}th{font-size:12px;color:#64748b}.hint{font-size:13px;color:#63758a}.notice{padding:12px;background:#fff5d9;border-radius:8px}.error{padding:12px;background:#fee7e7;color:#892322;border-radius:8px}.ok{padding:12px;background:#e1f7ed;color:#155a3a;border-radius:8px}@media(max-width:700px){.grid{grid-template-columns:1fr}table{font-size:12px}}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.kpi{background:#eef5fb;padding:16px;border-radius:10px}.kpi strong{font-size:28px;display:block;color:#103c66}.kpi span{font-size:13px;color:#42617c}.history{margin:6px 0;padding-left:18px;min-width:260px}.history li{margin:6px 0}.history small{display:block;color:#63758a}.badge{display:inline-block;padding:2px 6px;border-radius:10px;background:#e1f7ed;color:#155a3a;font-size:11px}@media(max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
-</style></head><body><header><h1>Conrado Entregas</h1><div>Gestão de veículos e viagens • piloto local</div></header><main>
-<section class="card"><h2>Acesso administrativo</h2><label>Chave administrativa<input id="token" type="password" autocomplete="off" placeholder="Chave definida ao iniciar o servidor"></label><button id="login">Acessar painel</button><p class="hint">A chave fica apenas na memória desta aba e não é gravada no navegador.</p></section>
-<div id="workspace" hidden><section class="card"><h2>Resumo da operação</h2><div class="kpis" id="summary" aria-live="polite"></div><p class="hint">Dados das viagens e notas importadas, sem rastreamento em tempo real.</p><button class="secondary" id="refreshButton" type="button">Atualizar indicadores</button></section><section class="card"><h2>Produtividade por motorista</h2><div id="productivity"></div><p class="hint">Percentual calculado somente com NF-e marcadas como entregues. Ocorrências, recusas e entregas parciais permanecem separadas.</p></section><div class="grid"><section class="card"><h2>Cadastrar motorista / veículo</h2><form id="driverForm"><label>Motorista<input name="name" maxlength="100" required></label><label>Placa<input name="plate" placeholder="ABC-1D23" required></label><label>Tipo de veículo<input name="vehicle_type" placeholder="3/4 ou HR" required></label><button>Cadastrar</button></form></section>
-<section class="card"><h2>Criar viagem</h2><form id="tripForm"><label>Veículo<select name="vehicle_id" id="vehicle" required></select></label><label>Identificação da viagem<input name="label" placeholder="Carga de segunda-feira" required></label><button>Criar rascunho</button></form><p class="hint">Uma placa pode ter várias viagens na semana, mas apenas uma liberada de cada vez.</p></section></div>
-<section class="card"><h2>Motoristas cadastrados</h2><div id="drivers"></div><p class="hint">A senha deve ter pelo menos 12 caracteres. Cada alteração invalida o acesso anterior do motorista.</p></section>
-<section class="card"><h2>Viagens</h2><div id="trips"></div><p class="hint">Para importar, selecione apenas os XMLs da viagem. A placa precisa coincidir com a do veículo.</p></section>
-<section class="card" id="detailBox" hidden><h2 id="detailTitle">Notas da viagem</h2><div id="detail"></div><button type="button" class="secondary" id="closeDetail">Fechar detalhes</button></section>
-</div><div id="feedback" role="status"></div><div class="notice">⚠️ Protótipo local com acesso móvel pelo navegador. APK Android, rastreamento e publicação pública ainda não foram concluídos. Não exponha esta aplicação na internet.</div></main>
-<script>
-let token='';const $=x=>document.getElementById(x);const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(path,data){const r=await fetch(path,{method:data===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});const j=await r.json();if(!r.ok)throw Error(j.erro||'Falha na operação');return j}
-function feedback(message,error=false){$('feedback').innerHTML=`<div class="${error?'error':'ok'}">${safe(message)}</div>`}
-async function refresh(){const [drivers,trips,summary,productivity]=await Promise.all([api('/api/drivers'),api('/api/trips'),api('/api/summary'),api('/api/productivity')]);const delivered=summary.notes.delivered;const total=Object.values(summary.notes).reduce((a,b)=>a+b,0);const cards=[['Viagens em rota',summary.trips.released],['Notas pendentes',summary.notes.pending],['Notas entregues',delivered],['Ocorrências, parciais e recusas',summary.notes.occurrence+summary.notes.partial+summary.notes.refused]];$('summary').innerHTML=cards.map(([label,value])=>`<div class="kpi"><strong>${value}</strong><span>${safe(label)}</span></div>`).join('')+`<div class="hint">${total} NF-e importadas • ${total?Math.round(100*delivered/total):0}% com baixa de entrega</div>`;$('productivity').innerHTML=productivity.length?`<div style="overflow-x:auto"><table><tr><th>Motorista</th><th>Placa</th><th>Viagens</th><th>Em rota</th><th>Concluídas</th><th>NF-e</th><th>Entregues</th><th>Pendentes</th><th>Ocorrências</th><th>Índice</th></tr>${productivity.map(p=>`<tr><td>${safe(p.name)}</td><td>${safe(p.plate)}</td><td>${p.trips}</td><td>${p.in_route}</td><td>${p.closed_trips}</td><td>${p.notes}</td><td>${p.delivered}</td><td>${p.pending}</td><td>${p.issues}</td><td><strong>${Number(p.delivery_rate).toLocaleString('pt-BR')}%</strong></td></tr>`).join('')}</table></div>`:'Nenhum motorista cadastrado.';$('drivers').innerHTML=drivers.length?`<table><tr><th>Motorista</th><th>Placa</th><th>Tipo</th><th>Acesso</th></tr>${drivers.map(d=>`<tr><td>${safe(d.name)}</td><td>${safe(d.plate)}</td><td>${safe(d.vehicle_type)}</td><td><button class="secondary" onclick="setPassword(${d.driver_id})">Definir senha</button></td></tr>`).join('')}</table>`:'Nenhum motorista cadastrado.';
- $('vehicle').innerHTML=drivers.map(d=>`<option value="${d.vehicle_id}">${safe(d.name)} • ${safe(d.plate)}</option>`).join('');
- $('trips').innerHTML=trips.length?`<table><tr><th>Viagem</th><th>Motorista</th><th>Placa</th><th>Notas</th><th>Status</th><th>Ação</th></tr>${trips.map(t=>`<tr><td>${safe(t.label)}</td><td>${safe(t.driver)}</td><td>${safe(t.plate)}</td><td>${t.notes}</td><td>${safe(t.status)}</td><td><button class="secondary" onclick="showTrip(${t.id})">Ver notas</button> ${t.status==='draft'?`<input type="file" id="file-${t.id}" multiple accept=".xml"><button onclick="importTrip(${t.id})">Importar</button> <button class="secondary" onclick="release(${t.id})">Liberar</button>`:''}</td></tr>`).join('')}</table>`:'Nenhuma viagem criada.'}
-function eventHistory(events){if(!events.length)return '<span class="hint">Sem movimentação</span>';return `<details><summary>${events.length} movimentação(ões)</summary><ol class="history">${events.map(e=>{const date=new Date(e.created_at);const when=Number.isNaN(date.getTime())?e.created_at:date.toLocaleString('pt-BR');return `<li><strong>${safe(e.status)}</strong>${e.has_evidence?' <span class="badge">com foto</span>':''}<small>${safe(e.driver)} • ${safe(when)}${e.arrival_time?` • chegada ${safe(e.arrival_time)}`:''}</small>${e.reason?`<div>${safe(e.reason)}</div>`:''}${e.affected_item?`<div><b>Item:</b> ${safe(e.affected_item)}</div>`:''}${e.seller_name?`<div><b>Vendedor:</b> ${safe(e.seller_name)}</div>`:''}</li>`}).join('')}</ol></details>`}
-async function showTrip(id){try{const trip=await api(`/api/trips/${id}/detail`);$('detailTitle').textContent=`${trip.label} • ${trip.plate} • ${trip.driver}`;$('detail').innerHTML=trip.notes.length?`<div style="overflow-x:auto"><table><tr><th>NF-e</th><th>Destinatário</th><th>Endereço</th><th>Volumes</th><th>Peso (kg)</th><th>Situação</th><th>Histórico</th></tr>${trip.notes.map(n=>`<tr><td>${safe(n.number)}</td><td>${safe(n.recipient)}</td><td>${safe(n.address)}</td><td>${n.volumes}</td><td>${Number(n.gross_weight).toLocaleString('pt-BR')}</td><td>${safe(n.status)}</td><td>${eventHistory(n.events)}</td></tr>`).join('')}</table></div>`:'Nenhuma nota fiscal importada nesta viagem.';$('detailBox').hidden=false;$('detailBox').scrollIntoView({behavior:'smooth'})}catch(e){feedback(e.message,true)}}
-$('closeDetail').onclick=()=>{$('detailBox').hidden=true};
-$('login').onclick=async()=>{token=$('token').value;try{await refresh();$('workspace').hidden=false;$('token').value='';feedback('Acesso autorizado.')}catch(e){token='';feedback(e.message,true)}};
-$('refreshButton').onclick=async()=>{try{await refresh();feedback('Indicadores atualizados.')}catch(e){feedback(e.message,true)}};
-for(const [form,path] of [['driverForm','/api/drivers'],['tripForm','/api/trips']])$(form).onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target).entries());try{await api(path,data);e.target.reset();await refresh();feedback('Cadastro registrado.')}catch(x){feedback(x.message,true)}};
-async function importTrip(id){const files=[...$('file-'+id).files];if(!files.length){feedback('Selecione XMLs antes de importar.',true);return}try{const arquivos=await Promise.all(files.map(async f=>{const b=new Uint8Array(await f.arrayBuffer());let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode(...b.slice(i,i+8192));return {name:f.name,base64:btoa(s)}}));const r=await api(`/api/trips/${id}/import`,{arquivos});await refresh();feedback(`${r.imported} nota(s) importada(s) para a viagem ${id}.`)}catch(e){feedback(e.message,true)}}
-async function release(id){if(!confirm('Liberar esta viagem? Confirme que os XMLs correspondem à carga.'))return;try{await api(`/api/trips/${id}/release`,{});await refresh();feedback('Viagem liberada.')}catch(e){feedback(e.message,true)}}
-async function setPassword(id){const password=prompt('Defina uma senha individual com pelo menos 12 caracteres:');if(password===null)return;try{await api(`/api/drivers/${id}/password`,{password});feedback('Senha atualizada. Entregue-a ao motorista por um canal privado.')}catch(e){feedback(e.message,true)}}
-</script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#102847">
+  <meta name="app-version" content="0.8.0-rc.1">
+  <title>Conrado Entregas • Gestão</title>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">CE</div>
+        <div><h1>Conrado Entregas</h1><p>Gestão de viagens e evidências</p></div>
+      </div>
+      <div class="header-actions" id="sessionHeader" hidden>
+        <span id="adminIdentity" class="tag"></span>
+        <button class="secondary" id="adminLogout" type="button">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo" tabindex="-1">
+    <section class="card" id="accessBox">
+      <span class="eyebrow">Acesso administrativo</span>
+      <h2>Entrar na gestão</h2>
+      <form id="adminLoginForm" class="grid">
+        <label>Usuário<input name="username" autocomplete="username" minlength="3" maxlength="50" required></label>
+        <label>Senha<input name="password" type="password" autocomplete="current-password" minlength="14" required></label>
+        <div class="actions"><button>Entrar</button></div>
+      </form>
+      <details>
+        <summary class="hint">Acesso local temporário por chave</summary>
+        <label>Chave administrativa<input id="legacyToken" type="password" autocomplete="off" placeholder="Somente no piloto local"></label>
+        <button id="legacyLogin" type="button" class="secondary">Usar chave</button>
+      </details>
+      <p class="hint">Use contas individuais na hospedagem. A chave legada fica desabilitada externamente.</p>
+    </section>
+
+    <div id="workspace" hidden>
+      <div class="status-strip">
+        <div class="status-group"><span id="networkStatus" class="chip"></span><span id="roleSummary" class="tag"></span></div>
+        <button class="secondary" id="refreshButton" type="button">Atualizar painel</button>
+      </div>
+
+      <section class="card">
+        <div class="card-header"><div><span class="eyebrow">Visão geral</span><h2>Resumo da operação</h2></div></div>
+        <div class="kpis" id="summary" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-header"><div><span class="eyebrow">Relatórios</span><h2>Exportações administrativas</h2></div></div>
+        <p class="hint">Os arquivos CSV são gerados somente após autenticação e não ficam armazenados no servidor.</p>
+        <div class="actions">
+          <button id="exportOccurrences" type="button" class="secondary">Baixar ocorrências</button>
+          <button id="exportAudit" type="button" class="ghost audit-only">Baixar auditoria</button>
+        </div>
+      </section>
+
+      <section class="card audit-only" id="diagnosticBox">
+        <div class="card-header"><div><span class="eyebrow">Saúde do sistema</span><h2>Diagnóstico sem dados pessoais</h2></div><button id="refreshDiagnostics" type="button" class="ghost">Atualizar diagnóstico</button></div>
+        <div id="diagnostics" class="diagnostics" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-header"><div><span class="eyebrow">Desempenho</span><h2>Produtividade por motorista</h2></div></div>
+        <div id="productivity"></div>
+        <p class="hint">O índice considera somente NF-e entregues; ocorrências, recusas e parciais permanecem separadas.</p>
+      </section>
+
+      <div class="grid requires-write">
+        <section class="card">
+          <span class="eyebrow">Frota</span><h2>Cadastrar motorista e veículo</h2>
+          <form id="driverForm" class="stack">
+            <label>Motorista<input name="name" maxlength="100" required></label>
+            <label>Placa<input name="plate" placeholder="ABC-1D23" required></label>
+            <label>Tipo de veículo<input name="vehicle_type" placeholder="3/4, HR ou TOCO" required></label>
+            <button>Cadastrar</button>
+          </form>
+        </section>
+        <section class="card">
+          <span class="eyebrow">Planejamento</span><h2>Criar viagem</h2>
+          <form id="tripForm" class="stack">
+            <label>Veículo<select name="vehicle_id" id="vehicle" required></select></label>
+            <label>Identificação<input name="label" placeholder="Carga de segunda-feira" required></label>
+            <button>Criar rascunho</button>
+          </form>
+          <p class="hint">Uma placa pode ter várias viagens, mas somente uma liberada de cada vez.</p>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-header"><div><span class="eyebrow">Equipe</span><h2>Motoristas cadastrados</h2></div></div>
+        <div id="drivers"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-header"><div><span class="eyebrow">Operação</span><h2>Viagens</h2></div></div>
+        <div id="trips"></div>
+        <p class="hint">Na importação, a placa encontrada no XML precisa coincidir com o veículo da viagem.</p>
+      </section>
+
+      <section class="card" id="detailBox" hidden>
+        <div class="card-header"><h2 id="detailTitle">Notas da viagem</h2><button type="button" class="ghost" id="closeDetail">Fechar</button></div>
+        <div id="detail"></div>
+      </section>
+
+      <section class="card admin-only" id="adminManagement" hidden>
+        <span class="eyebrow">Segurança</span><h2>Usuários administrativos</h2>
+        <form id="adminUserForm" class="grid">
+          <label>Usuário<input name="username" minlength="3" maxlength="50" required></label>
+          <label>Senha inicial<input name="password" type="password" minlength="14" autocomplete="new-password" required></label>
+          <label>Perfil<select name="role"><option value="operator">Operador</option><option value="auditor">Auditor</option><option value="admin">Administrador</option></select></label>
+          <div class="actions"><button>Criar ou redefinir</button></div>
+        </form>
+        <p class="hint">Administrador gerencia usuários e senhas; operador trabalha com viagens; auditor possui somente leitura.</p>
+        <div id="adminUsers"></div>
+      </section>
+    </div>
+
+    <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+    <section class="notice">Ambiente de piloto. Não utilizar dados reais antes da validação de backup, retenção e homologação operacional.</section>
+  </main>
+
+  <dialog id="passwordDialog">
+    <form method="dialog" class="card">
+      <h2>Redefinir senha do motorista</h2>
+      <input id="passwordDriverId" type="hidden">
+      <label>Nova senha<input id="driverPassword" type="password" minlength="12" autocomplete="new-password" required></label>
+      <div class="actions"><button value="cancel" class="ghost">Cancelar</button><button id="confirmDriverPassword" value="default">Salvar senha</button></div>
+    </form>
+  </dialog>
+
+  <script src="/assets/gestao.js" defer></script>
+</body>
+</html>

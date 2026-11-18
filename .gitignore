@@ -8,4 +8,7 @@ uploads/
 evidencias/
 dados-reais/
 *.xml
+*.backup
+*.dump
+*.conrado-backup
 !.github/**/*.xml

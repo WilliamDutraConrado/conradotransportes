@@ -5,13 +5,27 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   unittest:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Executar testes
-        run: python -m unittest discover -s tests -v
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python -m pip install --requirement requirements-postgres.txt
+      - run: python -m pip install pip-audit==2.10.1
+      - run: python -m pip_audit --requirement requirements-postgres.txt --strict
+      - run: python -m unittest discover -s tests -v
+      - run: node --test tests/js/test_offline_queue.js
+      - run: node --check web/assets/motorista.js
+      - run: node --check web/assets/gestao.js
+      - run: node --check web/sw.js

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Conrado Entregas">
+  <rect width="512" height="512" rx="112" fill="#102847"/>
+  <path d="M87 151h226v197H87z" fill="#fff"/>
+  <path d="M313 217h68l54 69v62H313z" fill="#63b9e9"/>
+  <path d="M342 238h30l34 45h-64z" fill="#fff"/>
+  <circle cx="158" cy="358" r="38" fill="#102847" stroke="#fff" stroke-width="18"/>
+  <circle cx="364" cy="358" r="38" fill="#102847" stroke="#fff" stroke-width="18"/>
+  <path d="M129 204h142M129 250h112" stroke="#1769aa" stroke-width="24" stroke-linecap="round"/>
+</svg>

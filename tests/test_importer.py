@@ -48,6 +48,10 @@ class ImportadorTest(unittest.TestCase):
         with self.assertRaises(NFeError):
             parse_nfe(b'<!DOCTYPE foo [<!ENTITY x SYSTEM "file:///etc/passwd">]><foo/>', REGEX)
 
+    def test_rejeita_xml_malformado_com_mensagem_controlada(self):
+        with self.assertRaisesRegex(NFeError, "XML malformado"):
+            parse_nfe(b'<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe>', REGEX)
+
     def test_rejeita_chave_invalida(self):
         with self.assertRaises(NFeError):
             parse_nfe(xml("1" * 43), REGEX)

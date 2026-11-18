@@ -1,22 +1,93 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conrado • Motorista</title>
-<style>
-:root{font:16px system-ui;color:#17304d;background:#f1f5f9}*{box-sizing:border-box}body{margin:0}header{background:#102847;color:white;padding:23px}header h1{font-size:23px;margin:0}header small{opacity:.7}main{max-width:650px;margin:auto;padding:18px}.card{background:white;border:1px solid #d8e2eb;border-radius:16px;padding:20px;margin:14px 0;box-shadow:0 2px 12px #1630500d}h2{font-size:19px}label{display:block;margin:12px 0;font-weight:650}input,select,textarea{width:100%;border:1px solid #c8d4df;border-radius:9px;padding:12px;font:inherit;margin-top:5px}button{background:#1765a7;color:white;border:0;border-radius:10px;padding:13px 18px;font-weight:700;font-size:15px;cursor:pointer}button+button{margin-left:8px}button:disabled{opacity:.5}.muted{color:#61758a;font-size:13px}.tag{display:inline-block;background:#e9f1fa;border-radius:20px;padding:5px 10px;font-size:12px;color:#235a91}.error{background:#ffe7e7;padding:12px;color:#8c2525;border-radius:9px}.ok{background:#e1f7e6;padding:12px;color:#1a5831;border-radius:9px}.note{border-left:4px solid #2078b8;padding:10px;margin:10px 0;background:#f8fbfe}.share-text{white-space:pre-wrap;background:#f6f8fb;border:1px solid #d8e2eb;border-radius:9px;padding:14px;font:14px/1.45 system-ui}
-</style></head><body><header><h1>Conrado Entregas</h1><small>Área do motorista • versão experimental</small></header><main>
-<section class="card" id="loginBox"><h2>Entrar na viagem</h2><form id="login"><label>Placa do caminhão<input name="plate" placeholder="ABC-1D23" required autocapitalize="characters"></label><label>Senha individual<input name="password" type="password" required></label><button>Entrar</button></form></section>
-<section id="trip" hidden></section><div id="msg" role="status"></div><p class="muted">Teste local: foto do canhoto para cada nota entregue, ocorrências e encerramento. Esta versão ainda não funciona offline nem deve ser utilizada em rota real.</p>
-</main><script>
-let session='',lastOccurrence='';const $=id=>document.getElementById(id);const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function notify(text,error=false){$('msg').innerHTML=`<p class="${error?'error':'ok'}">${esc(text)}</p>`}
-async function request(url,body){const res=await fetch(url,{method:body?'POST':'GET',headers:{'Authorization':'Bearer '+session,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const value=await res.json();if(!res.ok)throw Error(value.erro||'Falha na conexão');return value}
-function itemText(item){return `${item.descricao||'Produto'}${item.codigo?` • CÓD.: ${item.codigo}`:''}`}
-function itemLabel(item){return `${itemText(item)}${item.quantidade?` • NF: ${item.quantidade} ${item.unidade||''}`:''}`}
-async function refresh(){const data=await request('/api/driver/trip');if(!data.trip){$('trip').innerHTML='<section class="card">Nenhuma viagem liberada para você neste momento.</section>';return}
-const t=data.trip;const currentTime=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});$('trip').innerHTML=`<section class="card"><span class="tag">VIAGEM ATUAL</span><h2>${esc(t.label)}</h2><p>Placa ${esc(t.plate)} • ${t.notes.length} nota(s)</p><button onclick="closeTrip(${t.id})">Encerrar viagem</button><button onclick="logout()">Sair</button></section>`+t.notes.map(n=>{const options=(n.items||[]).map(i=>`<option value="${esc(itemText(i))}">${esc(itemLabel(i))}</option>`).join('');return `<section class="card"><div class="note"><strong>${esc(n.recipient)}</strong><p class="muted">${esc(n.address)}</p><div>NF-e ${esc(n.number)} • ${esc(n.city)} • <span class="tag">${esc(n.status)}</span></div></div><label>Situação<select id="status-${n.id}"><option value="delivered">Entregue (exige canhoto)</option><option value="occurrence">Ocorrência geral</option><option value="partial">Entrega parcial</option><option value="refused">Recusa</option></select></label><label>Chegada no cliente<input type="time" id="arrival-${n.id}" value="${currentTime}" required></label><label>Produto afetado<select id="item-${n.id}"><option value="">Nenhum / selecionar</option>${options}</select></label><label>Quantidade afetada<input id="quantity-${n.id}" maxlength="80" placeholder="Ex.: 01 (uma) caixa"></label><label>Vendedor<input id="seller-${n.id}" maxlength="100" value="${esc(n.seller)}" placeholder="Não localizado no XML"></label><label>Fotografia do canhoto ou da ocorrência<input type="file" id="photo-${n.id}" accept="image/jpeg,image/png" capture="environment"></label><label>Motivo/observação<textarea id="reason-${n.id}" rows="3" maxlength="1000" placeholder="Ex.: Falta de produto"></textarea></label><button onclick="record(${n.id})">Salvar situação</button></section>`}).join('')}
-function showOccurrence(text){lastOccurrence=text;$('msg').innerHTML=`<section class="card"><h2>Ocorrência pronta para compartilhar</h2><div class="share-text">${esc(text)}</div><p><button onclick="copyOccurrence()">Copiar texto</button><button onclick="shareOccurrence()">Compartilhar</button></p><p class="muted">Revise o texto antes de enviar. O aplicativo não envia automaticamente.</p><p id="shareStatus" class="muted" role="status"></p></section>`}
-async function copyOccurrence(){try{await navigator.clipboard.writeText(lastOccurrence);$('shareStatus').textContent='Texto copiado.'}catch(e){$('shareStatus').textContent='Não foi possível copiar automaticamente.'}}
-async function shareOccurrence(){try{if(!navigator.share)throw Error();await navigator.share({title:'Ocorrência - Conrado Transportes',text:lastOccurrence})}catch(e){if(e.name!=='AbortError')$('shareStatus').textContent='Use “Copiar texto” para compartilhar manualmente.'}}
-async function record(id){const event_id=crypto.randomUUID();const status=$('status-'+id).value;const file=$('photo-'+id).files[0];try{let photo_base64;if(file){if(file.size>5000000)throw Error('Foto maior que 5 MB; reduza a imagem.');const bytes=new Uint8Array(await file.arrayBuffer());let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.slice(i,i+8192));photo_base64=btoa(s)}if(status==='delivered'&&!photo_base64)throw Error('Fotografe o canhoto assinado.');const item=$('item-'+id).value,quantity=$('quantity-'+id).value.trim();const affected_item=[quantity,item].filter(Boolean).join(' - ');const result=await request(`/api/driver/notes/${id}/status`,{event_id,status,reason:$('reason-'+id).value,photo_base64,arrival_time:$('arrival-'+id).value,affected_item,seller_name:$('seller-'+id).value});await refresh();if(result.share_text)showOccurrence(result.share_text);else notify('Situação registrada no sistema.')}catch(e){notify(e.message,true)}}
-async function closeTrip(id){if(!confirm('Encerrar a viagem? Cada nota precisa ter baixa ou ocorrência.'))return;try{await request(`/api/driver/trips/${id}/close`,{});await refresh();notify('Viagem encerrada e retirada da tela de trabalho.')}catch(e){notify(e.message,true)}}
-async function logout(){try{await request('/api/driver/logout',{})}finally{session='';$('trip').hidden=true;$('trip').innerHTML='';$('loginBox').hidden=false;notify('Sessão encerrada.')}}
-$('login').onsubmit=async e=>{e.preventDefault();const values=Object.fromEntries(new FormData(e.target));try{const result=await request('/api/driver/login',values);session=result.token;$('loginBox').hidden=true;$('trip').hidden=false;await refresh();notify('Login realizado.')}catch(e){notify(e.message,true)}};
-</script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#102847">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Conrado">
+  <meta name="application-name" content="Conrado Entregas">
+  <meta name="app-version" content="0.8.0-rc.1">
+  <title>Conrado Entregas • Motorista</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">CE</div>
+        <div><h1>Conrado Entregas</h1><p>Rota do motorista</p></div>
+      </div>
+      <div class="header-actions">
+        <button id="installHelpButton" class="ghost" type="button" aria-haspopup="dialog">Instalar app</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="driver-main" id="conteudo" tabindex="-1">
+    <section class="update-banner" id="updateBox" role="status" hidden>
+      <div><strong>Atualização disponível</strong><span>Atualize quando não estiver preenchendo uma baixa.</span></div>
+      <button id="applyUpdate" type="button">Atualizar agora</button>
+    </section>
+    <div class="status-strip" aria-live="polite">
+      <div class="status-group">
+        <span id="networkStatus" class="chip">Verificando rede</span>
+        <span id="pendingCount" class="tag">0 pendentes</span>
+      </div>
+      <button id="syncButton" class="secondary" type="button">Sincronizar</button>
+    </div>
+
+    <section class="card" id="loginBox">
+      <span class="eyebrow">Acesso individual</span>
+      <h2>Entrar na viagem</h2>
+      <form id="login" class="stack" aria-describedby="loginHint">
+        <label>Placa do caminhão
+          <input name="plate" placeholder="ABC-1D23" required autocapitalize="characters" autocomplete="username" inputmode="text" enterkeyhint="next">
+        </label>
+        <label>Senha individual
+          <input name="password" type="password" required autocomplete="current-password" enterkeyhint="go">
+        </label>
+        <button>Entrar</button>
+      </form>
+      <button id="offlineResume" class="ghost" type="button" hidden>Continuar rota salva offline</button>
+      <p class="hint" id="loginHint">Para iniciar uma rota nova é preciso conexão. Uma rota já carregada permanece disponível neste aparelho.</p>
+    </section>
+
+    <section class="card" id="queueBox" hidden>
+      <div class="card-header">
+        <div><span class="eyebrow">Sincronização</span><h2>Operações pendentes</h2></div>
+      </div>
+      <div id="queueList" class="queue-list"></div>
+      <p class="hint">Os dados são cifrados no armazenamento do navegador e removidos somente após confirmação do servidor.</p>
+    </section>
+
+    <section id="trip" hidden></section>
+    <div id="msg" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <section class="notice">
+      Proteja o aparelho com bloqueio de tela. Em modo offline, as baixas ficam neste dispositivo até a próxima sincronização autenticada.
+    </section>
+  </main>
+
+  <dialog id="installDialog" aria-labelledby="installTitle">
+    <form method="dialog" class="card install-card">
+      <span class="eyebrow">Aplicativo no celular</span>
+      <h2 id="installTitle">Instalar Conrado Entregas</h2>
+      <ol id="installSteps" class="install-steps"></ol>
+      <p class="hint">A instalação exige HTTPS na homologação. Depois da primeira rota online, o aplicativo pode reabrir os dados protegidos sem internet.</p>
+      <div class="actions">
+        <button id="installButton" type="button" hidden>Instalar automaticamente</button>
+        <button class="ghost" value="cancel">Fechar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/assets/offline-queue.js" defer></script>
+  <script src="/assets/motorista.js" defer></script>
+</body>
+</html>
