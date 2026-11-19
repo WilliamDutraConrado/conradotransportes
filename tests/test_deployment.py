@@ -36,6 +36,17 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn("node --test tests/js/test_offline_queue.js", workflow)
         self.assertIn("python -m pip_audit --requirement requirements-postgres.txt --strict", workflow)
 
+    def test_render_blueprint_is_free_and_does_not_embed_secrets(self):
+        blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+        self.assertIn("runtime: docker", blueprint)
+        self.assertIn("plan: free", blueprint)
+        self.assertIn("healthCheckPath: /readyz", blueprint)
+        self.assertIn("value: https://conrado-entregas-william-dutra.onrender.com", blueprint)
+        for name in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SECRET_KEY", "SUPABASE_PROJECT_REF"):
+            self.assertIn(f"- key: {name}\n        sync: false", blueprint)
+        self.assertNotIn("postgresql://", blueprint)
+        self.assertNotIn("sb_secret_", blueprint)
+
     def test_pwa_declares_offline_shell_without_caching_api(self):
         manifest = (ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8")
         worker = (ROOT / "web" / "sw.js").read_text(encoding="utf-8")

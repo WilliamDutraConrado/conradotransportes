@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: conrado-entregas-william-dutra
+    runtime: docker
+    repo: https://github.com/WilliamDutraConrado/conradotransportes
+    branch: main
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /readyz
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: CONRADO_BACKEND
+        value: postgres
+      - key: CONRADO_BIND
+        value: 0.0.0.0
+      - key: CONRADO_ALLOWED_ORIGINS
+        value: https://conrado-entregas-william-dutra.onrender.com
+      - key: CONRADO_ACCESS_LOG
+        value: "1"
+      - key: CONRADO_ALLOW_ADMIN_TOKEN
+        value: "0"
+      - key: CONRADO_RETENTION_ENABLED
+        value: "0"
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_PROJECT_REF
+        sync: false

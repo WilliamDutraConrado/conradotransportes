@@ -40,32 +40,36 @@ Configurar apenas no gerenciador de segredos do provedor:
 Em hospedagem, a chave administrativa estática fica desabilitada por padrão. A
 variável `CONRADO_ADMIN_TOKEN` é somente para o piloto local de transição.
 
-`PORT` é injetada pela Railway. Não gravar valores secretos em Dockerfile,
-GitHub Actions, logs ou mensagens.
+`PORT` é configurada pelo `render.yaml`. Não gravar valores secretos em
+Dockerfile, Blueprint, GitHub Actions, logs ou mensagens.
 
-## Configuração da Railway
+## Configuração do Render
 
-- Usar o `Dockerfile` da raiz.
-- Configurar o healthcheck do serviço como `/readyz`.
+- Conectar o Blueprint `render.yaml` da raiz ao repositório público.
+- Confirmar o plano `free`, região `virginia` e healthcheck `/readyz` antes de
+  criar o serviço.
+- Preencher as quatro variáveis marcadas com `sync: false` diretamente no
+  painel. Nunca enviar esses valores ao chat ou ao GitHub.
 - O container já inclui `pg_dump` e `pg_restore`; o arquivo de backup precisa ser
   retirado imediatamente do disco efêmero e guardado em destino cifrado.
 - O limitador de login usa a tabela privada `app.login_limits` e funciona entre
   reinícios ou réplicas sem armazenar IP ou placa em claro.
-- Usar política de reinício `On Failure`.
 - Criar somente domínio de teste; não apontar domínio operacional.
 
-Depois do primeiro deploy e antes de liberar o domínio, abrir um shell seguro no
-serviço e executar `python -m conrado.admin_user NOME_DO_USUARIO`. A senha é
-solicitada duas vezes com entrada oculta. Não passá-la como argumento, variável
-de build, mensagem ou log. Depois, validar login/logout e manter
-`CONRADO_ALLOW_ADMIN_TOKEN=0`.
+O plano gratuito não oferece shell. Antes de liberar o domínio, executar em uma
+máquina autorizada, com as mesmas variáveis do Supabase carregadas localmente,
+`python -m conrado.admin_user NOME_DO_USUARIO`. A senha é solicitada duas vezes
+com entrada oculta. Não passá-la como argumento, variável de build, mensagem ou
+log. Depois, validar login/logout e manter `CONRADO_ALLOW_ADMIN_TOKEN=0`.
 
 Aplicar antes do primeiro login: `003_persistent_login_limits`, `004_admin_auth`,
 `005_admin_roles` e `006_retention_indexes`. O executor verifica RLS após cada migração. Não configurar
 migração destrutiva automática no processo de deploy.
 
-A Railway consulta o healthcheck durante o deploy. Monitoramento contínuo ainda
-precisa ser configurado separadamente.
+O Render consulta o healthcheck durante o deploy. No plano gratuito, o serviço
+hiberna após inatividade e pode levar cerca de um minuto para reativar. Isso é
+aceitável apenas em homologação; monitoramento contínuo ainda precisa ser
+configurado separadamente.
 
 ## Validação após deploy
 
@@ -87,7 +91,7 @@ precisa ser configurado separadamente.
 ## Rollback
 
 1. Remover o domínio público do serviço se houver risco de exposição.
-2. Reativar o último deploy aprovado no painel da Railway.
+2. Reativar um dos dois últimos deploys aprovados no painel do Render.
 3. Se houver suspeita de segredo exposto, rotacionar token administrativo, chave
    de serviço e senha do banco antes de reabrir o acesso.
 4. Não reverter migração destrutivamente. Restaurar primeiro em um projeto novo

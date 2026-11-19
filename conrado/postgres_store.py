@@ -369,7 +369,8 @@ class PostgresStore:
 
     def admin_users(self) -> list[dict]:
         with self.connection() as db:
-            rows = db.execute("""SELECT id AS admin_id,username,role,active,created_at
+            rows = db.execute("""SELECT id AS admin_id,username,role,active,
+                created_at::text AS created_at
                 FROM app.admin_users ORDER BY username""").fetchall()
             return [dict(row) for row in rows]
 

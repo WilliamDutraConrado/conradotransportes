@@ -189,6 +189,17 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(identity, {"admin_id": 7, "username": "operador", "role": "operator"})
         self.assertNotIn("token-admin-secreto", store.calls[0][1])
 
+    def test_admin_users_serializes_postgres_timestamp(self):
+        store = FakePostgres([[{
+            "admin_id": 7, "username": "william", "role": "admin", "active": True,
+            "created_at": "2026-11-19 06:14:00+00",
+        }]])
+
+        users = store.admin_users()
+
+        self.assertEqual(users[0]["created_at"], "2026-11-19 06:14:00+00")
+        self.assertIn("created_at::text AS created_at", store.calls[0][0])
+
     def test_admin_access_update_is_audited(self):
         store = FakePostgres([
             {"id": 8, "username": "auditor", "role": "auditor", "active": True},
