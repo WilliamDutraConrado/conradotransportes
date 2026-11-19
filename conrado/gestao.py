@@ -95,7 +95,7 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Conrado"
+    server_version = "DutraLog"
     sys_version = ""
 
     def setup(self):
@@ -235,13 +235,13 @@ class Handler(BaseHTTPRequestHandler):
             if admin_context["role"] not in ("admin", "auditor"):
                 self._json(403, {"erro": "Perfil sem permissão para exportar auditoria"})
             else:
-                self._csv(self.server.db.audit_export(), "auditoria-conrado.csv", (
+                self._csv(self.server.db.audit_export(), "auditoria-dutratracking.csv", (
                     ("happened_at", "Data/hora UTC"), ("actor", "Responsável"),
                     ("event", "Evento"), ("object_type", "Tipo"),
                     ("object_id", "Identificador"), ("payload", "Detalhes"),
                 ))
         elif self.path == "/api/admin/export/occurrences.csv":
-            self._csv(self.server.db.occurrence_export(), "ocorrencias-conrado.csv", (
+            self._csv(self.server.db.occurrence_export(), "ocorrencias-dutratracking.csv", (
                 ("created_at", "Data/hora UTC"), ("status", "Situação"),
                 ("invoice", "NF-e"), ("recipient", "Cliente"), ("city", "Cidade"),
                 ("trip", "Viagem"), ("plate", "Placa"), ("driver", "Motorista"),

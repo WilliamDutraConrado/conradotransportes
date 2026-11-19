@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Conrado Entregas">
-  <rect width="512" height="512" rx="112" fill="#102847"/>
-  <path d="M87 151h226v197H87z" fill="#fff"/>
-  <path d="M313 217h68l54 69v62H313z" fill="#63b9e9"/>
-  <path d="M342 238h30l34 45h-64z" fill="#fff"/>
-  <circle cx="158" cy="358" r="38" fill="#102847" stroke="#fff" stroke-width="18"/>
-  <circle cx="364" cy="358" r="38" fill="#102847" stroke="#fff" stroke-width="18"/>
-  <path d="M129 204h142M129 250h112" stroke="#1769aa" stroke-width="24" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Símbolo da DutraLog e do DutraTracking">
+  <rect width="512" height="512" rx="112" fill="#102a43"/>
+  <path d="M150 112h88c104 0 168 57 168 144s-64 144-168 144h-88V112Z"
+        fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M150 256h98c45 0 76-25 76-65"
+        fill="none" stroke="#6db9d6" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="150" cy="256" r="18" fill="#6db9d6" stroke="#102a43" stroke-width="8"/>
+  <circle cx="324" cy="191" r="18" fill="#6db9d6" stroke="#102a43" stroke-width="8"/>
 </svg>

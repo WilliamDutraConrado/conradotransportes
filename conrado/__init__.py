@@ -1,1 +1,1 @@
-"""Módulos do piloto Conrado Entregas."""
+"""Módulos do piloto DutraLog e DutraTracking."""

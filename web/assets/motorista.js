@@ -143,8 +143,8 @@ function renderTrip() {
   const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const header = `<section class="card">
     <div class="card-header"><div><span class="eyebrow">Viagem atual</span><h2>${esc(currentTrip.label)}</h2>
-    <p class="muted">Placa ${esc(currentTrip.plate)} • ${currentTrip.notes.length} nota(s)</p></div>
-    <span class="tag">${navigator.onLine && serverReachable ? "rota online" : "rota offline"}</span></div>
+    <p class="muted">Placa ${esc(currentTrip.plate)} • ${currentTrip.notes.length === 1 ? "1 nota" : `${currentTrip.notes.length} notas`}</p></div>
+    <span class="tag">${navigator.onLine && serverReachable ? "Rota online" : "Rota offline"}</span></div>
     <div class="actions"><button data-action="close-trip" data-trip-id="${currentTrip.id}">Encerrar viagem</button>
     <button class="secondary" data-action="logout">Sair</button></div>
   </section>`;
@@ -159,12 +159,12 @@ function renderTrip() {
         <option value="delivered">Entregue (exige canhoto)</option><option value="occurrence">Ocorrência geral</option>
         <option value="partial">Entrega parcial</option><option value="refused">Recusa</option>
       </select></label>
-      <label>Chegada no cliente<input type="time" id="arrival-${note.id}" value="${time}" required></label>
-      <label>Produto afetado<select id="item-${note.id}"><option value="">Nenhum / selecionar</option>${options}</select></label>
+      <label>Chegada ao cliente<input type="time" id="arrival-${note.id}" value="${time}" required></label>
+      <label>Produto afetado<select id="item-${note.id}"><option value="">Nenhum item selecionado</option>${options}</select></label>
       <label>Quantidade afetada<input id="quantity-${note.id}" maxlength="80" placeholder="Ex.: 01 (uma) caixa"></label>
       <label>Vendedor<input id="seller-${note.id}" maxlength="100" value="${esc(note.seller)}" placeholder="Não localizado no XML"></label>
       <label>Fotografia do canhoto ou da ocorrência<input type="file" id="photo-${note.id}" accept="image/jpeg,image/png" capture="environment"></label>
-      <label>Motivo/observação<textarea id="reason-${note.id}" maxlength="1000" placeholder="Ex.: Falta de produto"></textarea></label>
+      <label>Motivo ou observação<textarea id="reason-${note.id}" maxlength="1000" placeholder="Ex.: Falta de produto"></textarea></label>
       <button id="save-${note.id}" data-action="save-note" data-note-id="${note.id}">Salvar situação</button>
     </section>`;
   }).join("");
@@ -265,7 +265,7 @@ async function saveDelivery(noteId) {
 async function renderQueue() {
   try {
     const records = await ConradoOffline.listOperations();
-    $("pendingCount").textContent = `${records.length} pendente${records.length === 1 ? "" : "s"}`;
+    $("pendingCount").textContent = records.length === 0 ? "Nenhuma pendência" : records.length === 1 ? "1 pendência" : `${records.length} pendências`;
     $("queueBox").hidden = records.length === 0;
     $("queueList").innerHTML = records.map(record => `<div class="queue-item ${record.state === "blocked" ? "blocked" : ""}">
       <p><strong>${esc(record.label)}</strong></p><p class="hint">${esc(record.state === "blocked" ? "Requer revisão" : "Aguardando envio")} • ${esc(new Date(record.created_at).toLocaleString("pt-BR"))}</p>
@@ -274,7 +274,7 @@ async function renderQueue() {
     </div>`).join("");
     return records;
   } catch (_) {
-    $("pendingCount").textContent = "offline indisponível";
+    $("pendingCount").textContent = "Armazenamento offline indisponível";
     return [];
   }
 }
@@ -300,7 +300,7 @@ async function syncNow(options = {}) {
       const occurrence = [...outcome.synced].reverse().find(item => item.result && item.result.share_text);
       await refreshTrip(true);
       if (occurrence) showOccurrence(occurrence.result.share_text);
-      else if (!options.quiet) notify(`${outcome.synced.length} operação(ões) sincronizada(s).`);
+      else if (!options.quiet) notify(outcome.synced.length === 1 ? "1 operação sincronizada." : `${outcome.synced.length} operações sincronizadas.`);
     } else if (outcome.blocked.length && !options.quiet) {
       notify("Há uma operação que precisa de revisão antes de novo envio.", true);
     } else if (outcome.pending.length && !options.quiet) {
@@ -418,7 +418,7 @@ $("msg").addEventListener("click", async event => {
   } else if (button.dataset.messageAction === "share") {
     try {
       if (!navigator.share) throw new Error();
-      await navigator.share({ title: "Ocorrência - Conrado Transportes", text: lastOccurrence });
+      await navigator.share({ title: "Ocorrência • DutraLog", text: lastOccurrence });
     } catch (error) {
       if (error.name !== "AbortError") notify("Use “Copiar texto” para compartilhar manualmente.", true);
     }
@@ -430,7 +430,7 @@ $("installHelpButton").addEventListener("click", () => {
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   const steps = standalone
-    ? ["O aplicativo já está instalado neste aparelho.", "Use o ícone Conrado na tela inicial para abrir a rota."]
+    ? ["O aplicativo já está instalado neste aparelho.", "Use o ícone DutraLog na tela inicial para abrir a rota."]
     : ios
       ? ["Abra esta página no Safari.", "Toque em Compartilhar.", "Escolha “Adicionar à Tela de Início” e confirme."]
       : ["Use o botão “Instalar automaticamente” quando disponível.", "Se ele não aparecer, abra o menu do navegador.", "Escolha “Instalar app” ou “Adicionar à tela inicial”."];

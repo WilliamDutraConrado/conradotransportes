@@ -58,6 +58,18 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn('navigator.serviceWorker.register("/sw.js"', driver)
         self.assertIn('name: "AES-GCM"', queue)
 
+    def test_public_branding_distinguishes_driver_and_operations_products(self):
+        manifest = json.loads((ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8"))
+        driver = (ROOT / "web" / "motorista.html").read_text(encoding="utf-8")
+        management = (ROOT / "web" / "gestao.html").read_text(encoding="utf-8")
+        icon = (ROOT / "web" / "assets" / "icon.svg").read_text(encoding="utf-8")
+        self.assertEqual(manifest["short_name"], "DutraLog")
+        self.assertIn("DutraLog", driver)
+        self.assertIn("DutraTracking", management)
+        self.assertIn("DutraLog e do DutraTracking", icon)
+        self.assertNotIn("Conrado Entregas", driver)
+        self.assertNotIn("Conrado Entregas", management)
+
     def test_pwa_has_android_maskable_and_apple_icons(self):
         manifest = json.loads((ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8"))
         icons = {item["src"]: item for item in manifest["icons"]}

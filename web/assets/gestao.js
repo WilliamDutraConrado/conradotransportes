@@ -42,14 +42,14 @@ async function api(path, data) {
   }
   let value = {};
   try { value = await response.json(); } catch (_) {}
-  if (!response.ok) throw new Error(value.erro || "Falha na operação.");
+  if (!response.ok) throw new Error(value.erro || "Não foi possível concluir a operação.");
   return value;
 }
 
 function updateNetworkStatus() {
   const online = navigator.onLine && serverReachable;
   $("networkStatus").className = `chip ${online ? "online" : "offline"}`;
-  $("networkStatus").textContent = online ? "Servidor acessível pela rede" : "Sem conexão";
+  $("networkStatus").textContent = online ? "Servidor disponível" : "Sem conexão";
 }
 
 function roleLabel(role) {
@@ -130,9 +130,10 @@ function renderSummary(summary) {
     ["Notas entregues", delivered],
     ["Ocorrências e recusas", summary.notes.occurrence + summary.notes.partial + summary.notes.refused]
   ];
+  const importedLabel = total === 1 ? "1 nota fiscal importada" : `${total} notas fiscais importadas`;
   $("summary").innerHTML = cards.map(([label, value]) =>
     `<div class="kpi"><strong>${value}</strong><span>${safe(label)}</span></div>`
-  ).join("") + `<p class="hint">${total} NF-e importadas • ${total ? Math.round(100 * delivered / total) : 0}% com baixa de entrega</p>`;
+  ).join("") + `<p class="hint">${importedLabel} • ${total ? Math.round(100 * delivered / total) : 0}% com baixa de entrega</p>`;
 }
 
 function renderProductivity(productivity) {
@@ -174,7 +175,8 @@ function renderTrips(trips) {
 
 function eventHistory(events) {
   if (!events.length) return '<span class="hint">Sem movimentação</span>';
-  return `<details><summary>${events.length} movimentação(ões)</summary><ol class="history">${events.map(event => {
+  const movementLabel = events.length === 1 ? "1 movimentação" : `${events.length} movimentações`;
+  return `<details><summary>${movementLabel}</summary><ol class="history">${events.map(event => {
     const date = new Date(event.created_at);
     const when = Number.isNaN(date.getTime()) ? event.created_at : date.toLocaleString("pt-BR");
     return `<li><strong>${safe(statusLabel(event.status))}</strong>${event.has_evidence ? ` <button class="ghost" data-action="evidence" data-event-id="${safe(event.id)}">Ver foto</button>` : ""}<small>${safe(event.driver)} • ${safe(when)}${event.arrival_time ? ` • chegada ${safe(event.arrival_time)}` : ""}</small>${event.reason ? `<div>${safe(event.reason)}</div>` : ""}${event.affected_item ? `<div><b>Item:</b> ${safe(event.affected_item)}</div>` : ""}${event.seller_name ? `<div><b>Vendedor:</b> ${safe(event.seller_name)}</div>` : ""}</li>`;
@@ -286,11 +288,11 @@ $("refreshDiagnostics").addEventListener("click", async () => {
 });
 
 $("exportOccurrences").addEventListener("click", event => {
-  downloadAuthenticated("/api/admin/export/occurrences.csv", "ocorrencias-conrado.csv", event.currentTarget)
+  downloadAuthenticated("/api/admin/export/occurrences.csv", "ocorrencias-dutratracking.csv", event.currentTarget)
     .catch(error => feedback(error.message, true));
 });
 $("exportAudit").addEventListener("click", event => {
-  downloadAuthenticated("/api/admin/export/audit.csv", "auditoria-conrado.csv", event.currentTarget)
+  downloadAuthenticated("/api/admin/export/audit.csv", "auditoria-dutratracking.csv", event.currentTarget)
     .catch(error => feedback(error.message, true));
 });
 
@@ -358,7 +360,7 @@ $("trips").addEventListener("click", async event => {
       }));
       const result = await api(`/api/trips/${id}/import`, { arquivos });
       await refresh();
-      feedback(`${result.imported} nota(s) importada(s).`);
+      feedback(result.imported === 1 ? "1 nota importada." : `${result.imported} notas importadas.`);
     }
   } catch (error) { feedback(error.message, true); }
 });

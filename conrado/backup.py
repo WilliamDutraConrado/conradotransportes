@@ -273,7 +273,7 @@ def _project_ref_from_url(url: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Backup cifrado da Conrado Entregas")
+    parser = argparse.ArgumentParser(description="Backup cifrado do DutraTracking")
     subparsers = parser.add_subparsers(dest="action", required=True)
     create = subparsers.add_parser("create")
     create.add_argument("output", type=Path)

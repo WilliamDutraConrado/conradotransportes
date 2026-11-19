@@ -283,7 +283,7 @@ class APITest(unittest.TestCase):
         with urlopen(request, timeout=5) as response:
             content = response.read().decode("utf-8-sig")
             self.assertEqual(response.headers.get_content_type(), "text/csv")
-            self.assertIn("auditoria-conrado.csv", response.headers["Content-Disposition"])
+            self.assertIn("auditoria-dutratracking.csv", response.headers["Content-Disposition"])
         self.assertIn("Data/hora UTC", content)
         self.assertEqual(Handler._csv_cell("=SUM(A1:A2)"), "'=SUM(A1:A2)")
 

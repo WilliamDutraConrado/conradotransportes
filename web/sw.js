@@ -1,7 +1,7 @@
 "use strict";
 
-const VERSION = "0.8.0-rc.1";
-const CACHE = `conrado-driver-shell-${VERSION}`;
+const VERSION = "0.9.0-rc.1";
+const CACHE = `dutralog-driver-shell-${VERSION}`;
 const SHELL = [
   "/motorista",
   "/manifest.webmanifest",

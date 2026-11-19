@@ -2,6 +2,21 @@
 
 Todas as alterações relevantes deste projeto são registradas aqui.
 
+## 0.9.0-rc.1 — 2026-11-19
+
+### Marca e experiência
+
+- Aplicativo do motorista renomeado para DutraLog.
+- Central de gestão renomeada para DutraTracking.
+- Nova identidade visual compartilhada, com símbolo de rota em SVG e ícones PWA atualizados.
+- Interface mais clara, com hierarquia visual, tipografia e contraste revisados para desktop e celular.
+- Textos operacionais revisados em português, com pluralização natural e instruções menos técnicas.
+
+### Operação
+
+- Exportações administrativas identificadas com a marca DutraTracking.
+- Atualização da versão do PWA para distribuir os novos recursos visuais sem preservar o cache anterior.
+
 ## 0.8.0-rc.1 — 2026-11-18
 
 ### Adicionado

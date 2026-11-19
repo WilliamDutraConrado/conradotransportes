@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#102847">
-  <meta name="app-version" content="0.8.0-rc.1">
-  <title>Conrado Entregas • Gestão</title>
+  <meta name="theme-color" content="#102a43">
+  <meta name="description" content="DutraTracking: visão operacional de viagens, entregas e ocorrências.">
+  <meta name="app-version" content="0.9.0-rc.1">
+  <title>DutraTracking • Operação</title>
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
   <link rel="stylesheet" href="/assets/app.css">
@@ -15,8 +16,8 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">CE</div>
-        <div><h1>Conrado Entregas</h1><p>Gestão de viagens e evidências</p></div>
+        <img class="brand-symbol" src="/assets/icon.svg" alt="" width="44" height="44">
+        <div class="brand-copy"><h1>DutraTracking</h1><p>Visão da operação DutraLog</p></div>
       </div>
       <div class="header-actions" id="sessionHeader" hidden>
         <span id="adminIdentity" class="tag"></span>
@@ -28,7 +29,7 @@
   <main id="conteudo" tabindex="-1">
     <section class="card" id="accessBox">
       <span class="eyebrow">Acesso administrativo</span>
-      <h2>Entrar na gestão</h2>
+      <h2>Entrar no DutraTracking</h2>
       <form id="adminLoginForm" class="grid">
         <label>Usuário<input name="username" autocomplete="username" minlength="3" maxlength="50" required></label>
         <label>Senha<input name="password" type="password" autocomplete="current-password" minlength="14" required></label>
@@ -39,7 +40,7 @@
         <label>Chave administrativa<input id="legacyToken" type="password" autocomplete="off" placeholder="Somente no piloto local"></label>
         <button id="legacyLogin" type="button" class="secondary">Usar chave</button>
       </details>
-      <p class="hint">Use contas individuais na hospedagem. A chave legada fica desabilitada externamente.</p>
+      <p class="hint">Use sua conta individual. O acesso temporário por chave funciona somente no ambiente local.</p>
     </section>
 
     <div id="workspace" hidden>
@@ -118,13 +119,13 @@
           <label>Perfil<select name="role"><option value="operator">Operador</option><option value="auditor">Auditor</option><option value="admin">Administrador</option></select></label>
           <div class="actions"><button>Criar ou redefinir</button></div>
         </form>
-        <p class="hint">Administrador gerencia usuários e senhas; operador trabalha com viagens; auditor possui somente leitura.</p>
+        <p class="hint">O administrador gerencia usuários e senhas; o operador trabalha com viagens; o auditor tem acesso somente para consulta.</p>
         <div id="adminUsers"></div>
       </section>
     </div>
 
     <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
-    <section class="notice">Ambiente de piloto. Não utilizar dados reais antes da validação de backup, retenção e homologação operacional.</section>
+    <section class="notice">Ambiente de piloto. Não use dados reais antes da validação do backup, da retenção e da homologação operacional.</section>
   </main>
 
   <dialog id="passwordDialog">
