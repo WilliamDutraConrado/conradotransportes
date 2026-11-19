@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from conrado.importer import NFeError, parse_nfe, preview
+from conrado.painel import DEFAULT_REGEX
 
 
 REGEX = r"PLACA[: ]+([A-Z]{3}[0-9][A-Z0-9][0-9]{2})"
@@ -32,6 +33,13 @@ class ImportadorTest(unittest.TestCase):
         self.assertEqual(nota["vendedor"], "Ian Silva")
         self.assertEqual(nota["itens"], [{"codigo": "1940", "descricao": "Whey UHT",
                                           "quantidade": "12", "unidade": "UN"}])
+
+    def test_regex_padrao_aceita_veiculo_sem_rotulo_placa(self):
+        documento = xml("3" * 44).replace(
+            b"VEICULO PLACA: ABC1D23", b"VEICULO: PWS3J55/MG"
+        )
+        nota = parse_nfe(documento, DEFAULT_REGEX)
+        self.assertEqual(nota["placa"], "PWS3J55")
 
     def test_duplicata_e_placa_ausente(self):
         with TemporaryDirectory() as pasta:

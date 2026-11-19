@@ -13,7 +13,10 @@ from conrado.importer import NFeError, parse_nfe
 
 HERE = Path(__file__).resolve().parent.parent
 UI = HERE / "web" / "index.html"
-DEFAULT_REGEX = r"\bPLACA\s*[:=-]?\s*([A-Z]{3}[0-9][A-Z0-9][0-9]{2})\b"
+DEFAULT_REGEX = (
+    r"\b(?:PLACA|VE[IÍ]CULO)\s*[:=-]?\s*"
+    r"([A-Z]{3}[0-9][A-Z0-9][0-9]{2})\b"
+)
 MAX_REQUEST = 15_000_000
 MAX_FILES = 100
 
