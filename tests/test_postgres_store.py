@@ -2,6 +2,7 @@ import unittest
 import base64
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -128,7 +129,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = FakePostgres([
             {"id": 3, "label": "Carga", "status": "released", "plate": "ABC1D23", "driver": "Motorista"},
             [{"id": 8, "number": "123", "recipient": "Cliente", "address": "Rua 1",
-              "status": "occurrence", "gross_weight": 10, "volumes": 2}],
+              "status": "occurrence", "gross_weight": Decimal("10.500"), "volumes": 2}],
             [{"id": "event-123456789", "note_id": 8, "status": "occurrence", "reason": "Avaria",
               "created_at": "2026-11-17 12:00:00+00", "driver": "Motorista", "has_evidence": False}],
         ])
@@ -136,6 +137,7 @@ class PostgresStoreTests(unittest.TestCase):
         detail = store.trip_detail(3)
 
         self.assertEqual(detail["notes"][0]["events"][0]["reason"], "Avaria")
+        self.assertEqual(detail["notes"][0]["gross_weight"], 10.5)
         self.assertNotIn("note_id", detail["notes"][0]["events"][0])
         self.assertIn("app.delivery_events", store.calls[2][0])
 

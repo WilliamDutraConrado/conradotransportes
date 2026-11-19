@@ -284,6 +284,8 @@ class PostgresStore:
             result_notes = []
             for note in notes:
                 item = dict(note)
+                if item.get("gross_weight") is not None:
+                    item["gross_weight"] = float(item["gross_weight"])
                 item["events"] = events_by_note.get(item["id"], [])
                 result_notes.append(item)
             return {**dict(trip), "notes": result_notes}
