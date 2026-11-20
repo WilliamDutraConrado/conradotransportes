@@ -51,11 +51,14 @@ class DeploymentFilesTests(unittest.TestCase):
         manifest = (ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8")
         worker = (ROOT / "web" / "sw.js").read_text(encoding="utf-8")
         driver = (ROOT / "web" / "assets" / "motorista.js").read_text(encoding="utf-8")
+        delivery_form = (ROOT / "web" / "assets" / "delivery-form.js").read_text(encoding="utf-8")
         queue = (ROOT / "web" / "assets" / "offline-queue.js").read_text(encoding="utf-8")
         self.assertIn('"display": "standalone"', manifest)
         self.assertIn('"start_url": "/motorista"', manifest)
         self.assertIn('url.pathname.startsWith("/api/")', worker)
         self.assertIn('navigator.serviceWorker.register("/sw.js"', driver)
+        self.assertIn('"/assets/delivery-form.js"', worker)
+        self.assertIn("validateInput", delivery_form)
         self.assertIn('name: "AES-GCM"', queue)
 
     def test_public_branding_distinguishes_driver_and_operations_products(self):

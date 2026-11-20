@@ -116,6 +116,11 @@ class APITest(unittest.TestCase):
             self.assertEqual(response.headers["Service-Worker-Allowed"], "/")
             self.assertEqual(response.headers["Cache-Control"], "no-cache")
         self.assertIn("/assets/motorista.js", worker)
+        self.assertIn("/assets/delivery-form.js", worker)
+        with urlopen(base + "/assets/delivery-form.js", timeout=5) as response:
+            delivery_form = response.read().decode()
+            self.assertEqual(response.headers.get_content_type(), "text/javascript")
+        self.assertIn("validateInput", delivery_form)
         with urlopen(base + "/motorista", timeout=5) as response:
             html = response.read().decode()
             self.assertNotIn("'unsafe-inline'", response.headers["Content-Security-Policy"])

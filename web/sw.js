@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.9.0-rc.1";
+const VERSION = "0.9.0-rc.2";
 const CACHE = `dutralog-driver-shell-${VERSION}`;
 const SHELL = [
   "/motorista",
@@ -11,6 +11,7 @@ const SHELL = [
   "/assets/icon-192.png",
   "/assets/icon-512.png",
   "/assets/icon-maskable-512.png",
+  "/assets/delivery-form.js",
   "/assets/offline-queue.js",
   "/assets/motorista.js"
 ];

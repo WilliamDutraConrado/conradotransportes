@@ -2,6 +2,16 @@
 
 Todas as alterações relevantes deste projeto são registradas aqui.
 
+## 0.9.0-rc.2 — 2026-11-19
+
+### Correções urgentes no DutraLog
+
+- Validação imediata dos campos obrigatórios para Entregue, Recusada, Parcial e Ocorrência.
+- Mensagens de erro e confirmação exibidas dentro da própria nota fiscal.
+- Indicação visível de salvamento para evitar toques repetidos durante o envio da fotografia.
+- Atualização pontual da nota após a baixa, sem recarregar toda a rota nem perder a posição da tela.
+- Progresso visível durante o login e atualização do cache do PWA para distribuir a correção.
+
 ## 0.9.0-rc.1 — 2026-11-19
 
 ### Marca e experiência

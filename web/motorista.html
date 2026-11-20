@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DutraLog">
   <meta name="application-name" content="DutraLog">
-  <meta name="app-version" content="0.9.0-rc.1">
+  <meta name="app-version" content="0.9.0-rc.2">
   <title>DutraLog • Motorista</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -42,6 +42,7 @@
       </div>
       <button id="syncButton" class="secondary" type="button">Sincronizar</button>
     </div>
+    <div id="msg" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <section class="card" id="loginBox">
       <span class="eyebrow">Acesso individual</span>
@@ -68,7 +69,6 @@
     </section>
 
     <section id="trip" hidden></section>
-    <div id="msg" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <section class="notice">
       Proteja o aparelho com bloqueio de tela. Em modo offline, as baixas ficam neste dispositivo até a próxima sincronização autenticada.
@@ -88,6 +88,7 @@
     </form>
   </dialog>
 
+  <script src="/assets/delivery-form.js" defer></script>
   <script src="/assets/offline-queue.js" defer></script>
   <script src="/assets/motorista.js" defer></script>
 </body>

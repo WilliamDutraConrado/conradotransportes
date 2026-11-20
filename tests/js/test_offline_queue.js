@@ -4,6 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { sortAndDedupe, syncRecords, validateStoredRecord, OfflineDataError } =
   require("../../web/assets/offline-queue.js");
+const { requirements, statusLabel, validateInput } =
+  require("../../web/assets/delivery-form.js");
 
 test("deduplica pelo mesmo event_id e preserva ordem", () => {
   const records = sortAndDedupe([
@@ -73,4 +75,33 @@ test("sessão expirada preserva toda a fila para novo login", async () => {
   const outcome = await syncRecords([{ id: "one" }, { id: "two" }], async () => { throw error; });
   assert.deepEqual(outcome.pending.map(item => item.id), ["one", "two"]);
   assert.equal(outcome.synced.length, 0);
+});
+
+test("entrega concluída exige canhoto antes do envio", () => {
+  assert.throws(() => validateInput({
+    status: "delivered", arrivalTime: "11:00", reason: "", hasPhoto: false
+  }), /Fotografe o canhoto/);
+  assert.deepEqual(validateInput({
+    status: "delivered", arrivalTime: "11:00", reason: "", hasPhoto: true
+  }), { status: "delivered", arrivalTime: "11:00", reason: "" });
+});
+
+test("recusa, parcial e ocorrência exigem motivo antes do envio", () => {
+  for (const status of ["refused", "partial", "occurrence"]) {
+    assert.equal(requirements(status).reasonRequired, true);
+    assert.throws(() => validateInput({
+      status, arrivalTime: "11:00", reason: "", hasPhoto: false
+    }), /pelo menos 3 caracteres/);
+    assert.equal(validateInput({
+      status, arrivalTime: "11:00", reason: "Cliente fechado", hasPhoto: false
+    }).status, status);
+  }
+});
+
+test("situação e horário inválidos são bloqueados com mensagem clara", () => {
+  assert.throws(() => validateInput({ status: "pending", arrivalTime: "11:00" }), /situação válida/);
+  assert.throws(() => validateInput({
+    status: "refused", arrivalTime: "25:70", reason: "Recusa", hasPhoto: false
+  }), /horário de chegada válido/);
+  assert.equal(statusLabel("refused"), "Recusada");
 });

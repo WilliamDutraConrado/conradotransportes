@@ -29,6 +29,7 @@ STATIC_ROUTES = {
     "/assets/app.css": ("web/assets/app.css", "text/css; charset=utf-8", "public, max-age=3600"),
     "/assets/gestao.js": ("web/assets/gestao.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
     "/assets/motorista.js": ("web/assets/motorista.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
+    "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
     "/assets/offline-queue.js": ("web/assets/offline-queue.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
     "/assets/icon.svg": ("web/assets/icon.svg", "image/svg+xml", "public, max-age=86400"),
     "/assets/apple-touch-icon.png": ("web/assets/apple-touch-icon.png", "image/png", "public, max-age=86400"),

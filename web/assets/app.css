@@ -171,7 +171,20 @@ input[type="file"] { padding: 9px; background: #f8fafc; }
 .notice { background: #eaf2f7; color: #274e69; border: 1px solid #d2e2ec; }
 
 .note-card { border-left: 4px solid var(--blue); }
+.note-card.is-saving { border-left-color: #d19a22; }
 .note-card [data-action="save-note"] { width: 100%; min-height: 56px; }
+.required-marker { color: #596f82; font-size: .8rem; font-weight: 700; }
+.note-requirements { margin: 7px 0 12px; }
+.note-feedback { margin-top: 10px; }
+.note-feedback:empty { display: none; }
+.note-feedback > p { margin: 0; }
+.note-progress { margin: 0; padding: 11px 13px; border-radius: 10px; background: #eef4f8; color: #315a76; }
+.note-result { padding: 12px; border: 1px solid #cfe3d7; border-radius: 12px; background: #f7fbf8; }
+.note-result .ok { margin: 0 0 10px; }
+.note-result .share-text { background: #fff; }
+.note-result .actions { margin-top: 10px; }
+.note-action-status { margin: 9px 0 0; }
+.note-action-status.action-error { color: var(--error); }
 .note-summary {
   display: grid;
   grid-template-columns: 1fr auto;

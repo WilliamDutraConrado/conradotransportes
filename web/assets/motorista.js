@@ -3,6 +3,7 @@
 let session = sessionStorage.getItem("conradoDriverSession") || "";
 let currentTrip = null;
 let lastOccurrence = "";
+let occurrenceTexts = {};
 let installPrompt = null;
 let serverReachable = navigator.onLine;
 let reloadingForUpdate = false;
@@ -46,9 +47,34 @@ function notify(text, error = false) {
   $("msg").innerHTML = `<p class="${error ? "error" : "ok"}"${error ? ' role="alert"' : ""}>${esc(text)}</p>`;
 }
 
+function notifyNote(noteId, text, state = "") {
+  const target = $(`note-msg-${noteId}`);
+  if (!target) return;
+  if (!text) {
+    target.innerHTML = "";
+    return;
+  }
+  const className = state === "error" ? "error" : state === "success" ? "ok" : "note-progress";
+  target.innerHTML = `<p class="${className}"${state === "error" ? ' role="alert"' : ""}>${esc(text)}</p>`;
+}
+
 function setBusy(element, busy) {
   element.disabled = busy;
   element.setAttribute("aria-busy", String(busy));
+}
+
+function setNoteBusy(noteId, busy) {
+  const button = $(`save-${noteId}`);
+  if (!button) return;
+  if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent;
+  setBusy(button, busy);
+  button.textContent = busy ? "Salvando…" : button.dataset.idleLabel;
+  const card = document.querySelector(`[data-note-card="${noteId}"]`);
+  if (card) card.classList.toggle("is-saving", busy);
+}
+
+function nextPaint() {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
 function updateNetworkStatus() {
@@ -123,10 +149,7 @@ function itemLabel(item) {
 }
 
 function statusLabel(status) {
-  return {
-    pending: "Pendente", delivered: "Entregue", occurrence: "Ocorrência",
-    partial: "Parcial", refused: "Recusada"
-  }[status] || status;
+  return DutraDelivery.statusLabel(status);
 }
 
 async function cacheCurrentTrip() {
@@ -149,23 +172,30 @@ function renderTrip() {
     <button class="secondary" data-action="logout">Sair</button></div>
   </section>`;
   const notes = currentTrip.notes.map(note => {
+    const selectedStatus = note.status === "pending" ? "delivered" : note.status;
+    const statusOptions = [
+      ["delivered", "Entregue (exige canhoto)"], ["occurrence", "Ocorrência geral"],
+      ["partial", "Entrega parcial"], ["refused", "Recusa"]
+    ].map(([value, label]) => `<option value="${value}"${selectedStatus === value ? " selected" : ""}>${label}</option>`).join("");
+    const rule = DutraDelivery.requirements(selectedStatus);
     const options = (note.items || []).map(item =>
       `<option value="${esc(itemText(item))}">${esc(itemLabel(item))}</option>`
     ).join("");
     return `<section class="card note-card" data-note-card="${note.id}">
       <div class="note-summary"><div><strong>${esc(note.recipient)}</strong><p class="muted">${esc(note.address)}</p>
       <p>NF-e ${esc(note.number)} • ${esc(note.city)}</p></div><span class="tag">${esc(statusLabel(note.status))}</span></div>
-      <label>Situação<select id="status-${note.id}">
-        <option value="delivered">Entregue (exige canhoto)</option><option value="occurrence">Ocorrência geral</option>
-        <option value="partial">Entrega parcial</option><option value="refused">Recusa</option>
-      </select></label>
+      <label>Situação<select id="status-${note.id}" aria-describedby="requirements-${note.id}">${statusOptions}</select></label>
       <label>Chegada ao cliente<input type="time" id="arrival-${note.id}" value="${time}" required></label>
       <label>Produto afetado<select id="item-${note.id}"><option value="">Nenhum item selecionado</option>${options}</select></label>
       <label>Quantidade afetada<input id="quantity-${note.id}" maxlength="80" placeholder="Ex.: 01 (uma) caixa"></label>
       <label>Vendedor<input id="seller-${note.id}" maxlength="100" value="${esc(note.seller)}" placeholder="Não localizado no XML"></label>
-      <label>Fotografia do canhoto ou da ocorrência<input type="file" id="photo-${note.id}" accept="image/jpeg,image/png" capture="environment"></label>
-      <label>Motivo ou observação<textarea id="reason-${note.id}" maxlength="1000" placeholder="Ex.: Falta de produto"></textarea></label>
+      <label>Fotografia do canhoto ou da ocorrência<span class="required-marker" id="photo-required-${note.id}">${rule.photoRequired ? " • obrigatória" : " • opcional"}</span>
+        <input type="file" id="photo-${note.id}" accept="image/jpeg,image/png" capture="environment"${rule.photoRequired ? " required" : ""} aria-describedby="requirements-${note.id}"></label>
+      <label>Motivo ou observação<span class="required-marker" id="reason-required-${note.id}">${rule.reasonRequired ? " • obrigatório" : " • opcional"}</span>
+        <textarea id="reason-${note.id}" maxlength="1000" placeholder="${esc(rule.reasonPlaceholder)}"${rule.reasonRequired ? " required" : ""} aria-describedby="requirements-${note.id}"></textarea></label>
+      <p class="hint note-requirements" id="requirements-${note.id}">${esc(rule.hint)}</p>
       <button id="save-${note.id}" data-action="save-note" data-note-id="${note.id}">Salvar situação</button>
+      <div class="note-feedback" id="note-msg-${note.id}" role="status" aria-live="polite" aria-atomic="true"></div>
     </section>`;
   }).join("");
   $("trip").innerHTML = header + notes;
@@ -195,8 +225,43 @@ function applyLocalStatus(noteId, status) {
   if (note) note.status = status;
 }
 
-function showOccurrence(text) {
+function updateNoteStatus(noteId, status) {
+  applyLocalStatus(noteId, status);
+  const card = document.querySelector(`[data-note-card="${noteId}"]`);
+  if (!card) return;
+  card.dataset.noteStatus = status;
+  const tag = card.querySelector(".note-summary .tag");
+  if (tag) tag.textContent = statusLabel(status);
+}
+
+function updateNoteRequirements(noteId) {
+  const status = $(`status-${noteId}`);
+  const photo = $(`photo-${noteId}`);
+  const reason = $(`reason-${noteId}`);
+  if (!status || !photo || !reason) return;
+  const rule = DutraDelivery.requirements(status.value);
+  if (!rule) return;
+  photo.required = rule.photoRequired;
+  reason.required = rule.reasonRequired;
+  reason.placeholder = rule.reasonPlaceholder;
+  $(`photo-required-${noteId}`).textContent = rule.photoRequired ? " • obrigatória" : " • opcional";
+  $(`reason-required-${noteId}`).textContent = rule.reasonRequired ? " • obrigatório" : " • opcional";
+  $(`requirements-${noteId}`).textContent = rule.hint;
+}
+
+function showOccurrence(text, noteId = null) {
   lastOccurrence = text;
+  if (noteId !== null && $(`note-msg-${noteId}`)) {
+    occurrenceTexts[noteId] = text;
+    $(`note-msg-${noteId}`).innerHTML = `<div class="note-result">
+      <p class="ok">Ocorrência confirmada pelo servidor.</p>
+      <div class="share-text">${esc(text)}</div>
+      <div class="actions"><button type="button" data-message-action="copy" data-note-id="${noteId}">Copiar texto</button>
+      <button type="button" class="secondary" data-message-action="share" data-note-id="${noteId}">Compartilhar</button></div>
+      <p class="hint note-action-status">Revise antes de enviar. O aplicativo não envia automaticamente.</p>
+    </div>`;
+    return;
+  }
   $("msg").innerHTML = `<section class="card"><span class="eyebrow">Texto preparado</span>
     <h2>Ocorrência pronta para compartilhar</h2><div class="share-text">${esc(text)}</div>
     <div class="actions"><button data-message-action="copy">Copiar texto</button>
@@ -214,51 +279,59 @@ async function queueDelivery(noteId, payload) {
     url: `/api/driver/notes/${noteId}/status`,
     body: payload
   });
-  applyLocalStatus(noteId, payload.status);
+  updateNoteStatus(noteId, payload.status);
   await cacheCurrentTrip();
   confirmEvent(noteId);
-  renderTrip();
   await renderQueue();
 }
 
 async function saveDelivery(noteId) {
-  const button = $(`save-${noteId}`);
-  setBusy(button, true);
+  setNoteBusy(noteId, true);
+  notifyNote(noteId, "Preparando e salvando a situação…");
+  await nextPaint();
   try {
-    const status = $(`status-${noteId}`).value;
-    const photoBase64 = await preparePhoto($(`photo-${noteId}`).files[0]);
-    if (status === "delivered" && !photoBase64) throw new Error("Fotografe o canhoto assinado.");
+    const file = $(`photo-${noteId}`).files[0];
+    const values = DutraDelivery.validateInput({
+      status: $(`status-${noteId}`).value,
+      reason: $(`reason-${noteId}`).value,
+      arrivalTime: $(`arrival-${noteId}`).value,
+      hasPhoto: Boolean(file)
+    });
+    const photoBase64 = await preparePhoto(file);
     const affectedItem = [$(`quantity-${noteId}`).value.trim(), $(`item-${noteId}`).value].filter(Boolean).join(" - ");
     const payload = {
-      event_id: eventIdFor(noteId), status, reason: $(`reason-${noteId}`).value,
-      photo_base64: photoBase64, arrival_time: $(`arrival-${noteId}`).value,
+      event_id: eventIdFor(noteId), status: values.status, reason: values.reason,
+      photo_base64: photoBase64, arrival_time: values.arrivalTime,
       affected_item: affectedItem, seller_name: $(`seller-${noteId}`).value
     };
     if (!session || !navigator.onLine) {
       await queueDelivery(noteId, payload);
-      notify("Situação salva com segurança no aparelho e aguardando sincronização.");
+      notifyNote(noteId, "Situação salva com segurança no aparelho e aguardando sincronização.", "success");
       return;
     }
     try {
-      const result = await request(`/api/driver/notes/${noteId}/status`, payload);
+      const result = await request(`/api/driver/notes/${noteId}/status`, payload, 45000);
       confirmEvent(noteId);
-      await refreshTrip();
-      if (result.share_text) showOccurrence(result.share_text);
-      else notify(result.duplicate ? "Situação já havia sido registrada." : "Situação confirmada pelo servidor.");
+      updateNoteStatus(noteId, result.status || values.status);
+      await cacheCurrentTrip();
+      if (result.share_text) showOccurrence(result.share_text, noteId);
+      else notifyNote(noteId, result.duplicate ? "Situação já havia sido registrada." : "Entrega confirmada pelo servidor.", "success");
     } catch (error) {
       if (!ConradoOffline.retryableError(error)) throw error;
       await queueDelivery(noteId, payload);
       if (error.status === 401) {
         setSession("");
         $("loginBox").hidden = false;
+        notifyNote(noteId, "A sessão expirou. A baixa foi preservada para sincronização.", "error");
         notify("A sessão expirou. A baixa foi preservada; entre novamente para sincronizar.", true);
       } else {
-        notify("O servidor não confirmou a baixa. Ela foi preservada para sincronização.");
+        notifyNote(noteId, "Sem confirmação do servidor. A baixa foi preservada para sincronização.", "success");
       }
     }
   } catch (error) {
-    setBusy(button, false);
-    notify(error.message, true);
+    notifyNote(noteId, error.message, "error");
+  } finally {
+    setNoteBusy(noteId, false);
   }
 }
 
@@ -361,6 +434,11 @@ async function logout() {
 $("login").addEventListener("submit", async event => {
   event.preventDefault();
   const values = Object.fromEntries(new FormData(event.target));
+  const button = event.target.querySelector("button");
+  const label = button.textContent;
+  setBusy(button, true);
+  button.textContent = "Conectando…";
+  notify("Conectando ao servidor…");
   try {
     const result = await request("/api/driver/login", values);
     setSession(result.token);
@@ -371,6 +449,9 @@ $("login").addEventListener("submit", async event => {
   } catch (error) {
     setSession("");
     notify(error.message, true);
+  } finally {
+    setBusy(button, false);
+    button.textContent = label;
   }
 });
 
@@ -388,11 +469,24 @@ $("offlineResume").addEventListener("click", async () => {
 });
 
 $("trip").addEventListener("click", event => {
+  const messageButton = event.target.closest("button[data-message-action]");
+  if (messageButton) {
+    handleMessageAction(messageButton);
+    return;
+  }
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   if (button.dataset.action === "save-note") saveDelivery(Number(button.dataset.noteId));
   if (button.dataset.action === "close-trip") closeTrip(Number(button.dataset.tripId));
   if (button.dataset.action === "logout") logout();
+});
+
+$("trip").addEventListener("change", event => {
+  const select = event.target.closest('select[id^="status-"]');
+  if (!select) return;
+  const noteId = Number(select.id.replace("status-", ""));
+  updateNoteRequirements(noteId);
+  notifyNote(noteId, "");
 });
 
 $("queueList").addEventListener("click", async event => {
@@ -409,20 +503,35 @@ $("queueList").addEventListener("click", async event => {
   }
 });
 
-$("msg").addEventListener("click", async event => {
-  const button = event.target.closest("button[data-message-action]");
-  if (!button) return;
+async function handleMessageAction(button) {
+  const noteId = button.dataset.noteId || "";
+  const text = noteId ? occurrenceTexts[noteId] : lastOccurrence;
+  const actionStatus = noteId ? $(`note-msg-${noteId}`).querySelector(".note-action-status") : null;
+  const report = (message, error = false) => {
+    if (actionStatus) {
+      actionStatus.textContent = message;
+      actionStatus.classList.toggle("action-error", error);
+    } else {
+      notify(message, error);
+    }
+  };
   if (button.dataset.messageAction === "copy") {
-    try { await navigator.clipboard.writeText(lastOccurrence); notify("Texto copiado."); }
-    catch (_) { notify("Não foi possível copiar automaticamente.", true); }
+    try { await navigator.clipboard.writeText(text); report("Texto copiado."); }
+    catch (_) { report("Não foi possível copiar automaticamente.", true); }
   } else if (button.dataset.messageAction === "share") {
     try {
       if (!navigator.share) throw new Error();
-      await navigator.share({ title: "Ocorrência • DutraLog", text: lastOccurrence });
+      await navigator.share({ title: "Ocorrência • DutraLog", text });
     } catch (error) {
-      if (error.name !== "AbortError") notify("Use “Copiar texto” para compartilhar manualmente.", true);
+      if (error.name !== "AbortError") report("Use “Copiar texto” para compartilhar manualmente.", true);
     }
   }
+}
+
+$("msg").addEventListener("click", async event => {
+  const button = event.target.closest("button[data-message-action]");
+  if (!button) return;
+  await handleMessageAction(button);
 });
 
 $("syncButton").addEventListener("click", () => syncNow());
