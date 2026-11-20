@@ -26,7 +26,7 @@ O administrador importa manualmente somente os XMLs da carga já conferida e doc
 
 ## Segurança e operação offline
 
-- Placa pode ser identificação de login, mas motorista e veículo possuem identificadores internos distintos. Senhas individuais fortes; nunca usar senha compartilhada ou padrão numérico.
+- Placa pode ser identificação de login, mas motorista e veículo possuem identificadores internos distintos. Cada motorista usa um PIN próprio de 5 dígitos; nunca reutilizar o mesmo PIN entre pessoas nem usar sequências previsíveis.
 - Banco separa dados de cada transportadora; regras de autorização devem valer também no servidor.
 - App mantém fila offline e sincroniza operações com identificadores únicos para evitar baixas duplicadas.
 - Fotos e NF-e são informações sensíveis da operação: acesso restrito, criptografia, retenção e backups são necessários antes do piloto real.

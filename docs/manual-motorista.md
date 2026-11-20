@@ -7,9 +7,9 @@
 
 ## Iniciar a rota
 
-1. Informe a placa e sua senha individual.
+1. Informe a placa e seu PIN individual de 5 dígitos.
 2. Confira viagem, quantidade de NF-e e clientes. As NF-e aparecem em ordem numérica crescente.
-3. Não compartilhe a senha nem deixe o aparelho desbloqueado.
+3. Não compartilhe o PIN nem deixe o aparelho desbloqueado.
 
 Em cada entrega, use **Abrir no Waze** ou **Google Maps** se precisar navegar até o endereço extraído da NF-e. Confira o destino também no documento físico antes de iniciar a rota.
 

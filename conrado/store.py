@@ -42,6 +42,23 @@ def normalize_admin_username(username: str) -> str:
     return result
 
 
+WEAK_DRIVER_PINS = frozenset({
+    "00000", "11111", "22222", "33333", "44444",
+    "55555", "66666", "77777", "88888", "99999",
+    "01234", "12345", "23456", "34567", "45678", "56789",
+    "98765", "87654", "76543", "65432", "54321", "43210",
+})
+
+
+def normalize_driver_pin(value) -> str:
+    pin = str(value or "").strip()
+    if not re.fullmatch(r"[0-9]{5}", pin):
+        raise BusinessError("O PIN do motorista deve conter exatamente 5 dígitos")
+    if pin in WEAK_DRIVER_PINS:
+        raise BusinessError("Escolha um PIN menos previsível")
+    return pin
+
+
 ADMIN_ROLES = frozenset({"admin", "operator", "auditor"})
 DELIVERY_STATUSES = frozenset({"delivered", "refused", "occurrence"})
 REFUSAL_REASONS = frozenset({"Pedido Duplicado", "Sem Pedido"})
@@ -417,12 +434,13 @@ class Store:
 
     def record_login_failure(self, client: str, plate: str) -> None:
         moment = time.time()
+        block_seconds = 300 if str(plate).startswith("admin:") else 900
         with self.connection() as db:
             for key in login_limit_keys(client, plate):
                 row = db.execute("SELECT failures,window_started FROM login_limits WHERE key_hash=?", (key,)).fetchone()
                 failures = row["failures"] + 1 if row and row["window_started"] >= moment - 300 else 1
                 window_started = row["window_started"] if row and row["window_started"] >= moment - 300 else moment
-                blocked_until = moment + 300 if failures >= 5 else None
+                blocked_until = moment + block_seconds if failures >= 5 else None
                 db.execute("""INSERT INTO login_limits(key_hash,failures,window_started,blocked_until)
                     VALUES(?,?,?,?) ON CONFLICT(key_hash) DO UPDATE SET failures=excluded.failures,
                     window_started=excluded.window_started,blocked_until=excluded.blocked_until""",
@@ -629,8 +647,7 @@ class Store:
             return {"trip_id": trip_id, "status": "released"}
 
     def set_driver_password(self, driver_id: int, password: str, *, actor: str = "admin") -> None:
-        if len(password) < 12:
-            raise BusinessError("A senha precisa ter pelo menos 12 caracteres")
+        password = normalize_driver_pin(password)
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260_000)
         with self.connection() as db:

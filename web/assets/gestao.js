@@ -358,11 +358,11 @@ $("drivers").addEventListener("click", event => {
 $("confirmDriverPassword").addEventListener("click", async event => {
   event.preventDefault();
   const password = $("driverPassword").value;
-  if (password.length < 12) { feedback("A senha precisa ter pelo menos 12 caracteres.", true); return; }
+  if (!/^[0-9]{5}$/.test(password)) { feedback("O PIN deve conter exatamente 5 dígitos.", true); return; }
   try {
     await api(`/api/drivers/${$("passwordDriverId").value}/password`, { password });
     $("passwordDialog").close();
-    feedback("Senha atualizada; a sessão anterior do motorista foi revogada.");
+    feedback("PIN atualizado; a sessão anterior do motorista foi revogada.");
   } catch (error) { feedback(error.message, true); }
 });
 

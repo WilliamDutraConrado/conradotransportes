@@ -66,8 +66,13 @@ class APITest(unittest.TestCase):
 
     def test_login_limita_tentativas_e_retorna_retry_after(self):
         _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
+        status, result = self.request(
+            f"/api/drivers/{driver['driver_id']}/password", {"password": "12345"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("menos previsível", result["erro"])
         self.assertEqual(self.request(f"/api/drivers/{driver['driver_id']}/password",
-                                      {"password": "SenhaIndividualSegura2026!"})[0], 200)
+                                      {"password": "48271"})[0], 200)
         for _ in range(5):
             status, result = self.request("/api/driver/login", {"plate": "ABC1D23", "password": "incorreta"},
                                           authorized=False)
@@ -77,17 +82,17 @@ class APITest(unittest.TestCase):
                                                {"plate": "ABC1D23", "password": "incorreta"},
                                                authorized=False, with_headers=True)
         self.assertEqual(status, 429)
-        self.assertEqual(headers["Retry-After"], "300")
-        self.assertIn("cinco minutos", result["erro"])
+        self.assertEqual(headers["Retry-After"], "900")
+        self.assertIn("quinze minutos", result["erro"])
 
     def test_falha_transitoria_da_foto_retorna_503_para_fila_offline(self):
         _, driver = self.request(
             "/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"},
         )
         self.request(f"/api/drivers/{driver['driver_id']}/password",
-                     {"password": "SenhaIndividualSegura2026!"})
+                     {"password": "48271"})
         _, login = self.request(
-            "/api/driver/login", {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+            "/api/driver/login", {"plate": "ABC1D23", "password": "48271"},
             authorized=False,
         )
         self.server.db.record_delivery = MagicMock(side_effect=ServiceUnavailable("Storage indisponível"))
@@ -189,9 +194,9 @@ class APITest(unittest.TestCase):
 
     def test_logout_revoga_sessao_do_motorista(self):
         _, driver = self.request("/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"})
-        self.request(f"/api/drivers/{driver['driver_id']}/password", {"password": "SenhaIndividualSegura2026!"})
+        self.request(f"/api/drivers/{driver['driver_id']}/password", {"password": "48271"})
         status, login = self.request("/api/driver/login",
-                                     {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+                                     {"plate": "ABC1D23", "password": "48271"},
                                      authorized=False)
         self.assertEqual(status, 200)
         token = login["token"]
@@ -208,7 +213,7 @@ class APITest(unittest.TestCase):
             "/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"},
         )
         self.request(f"/api/drivers/{driver['driver_id']}/password",
-                     {"password": "SenhaIndividualSegura2026!"})
+                     {"password": "48271"})
         _, trip = self.request("/api/trips", {"vehicle_id": driver["vehicle_id"], "label": "Rota teste"})
         payload = {"arquivos": [{
             "name": "nf.xml", "base64": base64.b64encode(xml("1" * 44)).decode(),
@@ -216,7 +221,7 @@ class APITest(unittest.TestCase):
         self.assertEqual(self.request(f"/api/trips/{trip['trip_id']}/import", payload)[0], 200)
         self.assertEqual(self.request(f"/api/trips/{trip['trip_id']}/release", {})[0], 200)
         _, login = self.request(
-            "/api/driver/login", {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+            "/api/driver/login", {"plate": "ABC1D23", "password": "48271"},
             authorized=False,
         )
         token = login["token"]
@@ -307,7 +312,7 @@ class APITest(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(self.request(
-            f"/api/drivers/{driver['driver_id']}/password", {"password": "SenhaMotoristaSegura!"},
+            f"/api/drivers/{driver['driver_id']}/password", {"password": "58271"},
             authorized=False, auth_token=operator_token,
         )[0], 403)
         self.assertEqual(self.request(

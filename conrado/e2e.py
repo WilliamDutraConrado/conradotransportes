@@ -140,7 +140,7 @@ def run_e2e(dsn: str, admin_token: str) -> dict:
     marker = secrets.token_hex(6)
     plate = f"TST0A{secrets.randbelow(100):02d}"
     access_key = "98" + "".join(str(secrets.randbelow(10)) for _ in range(42))
-    driver_password = secrets.token_urlsafe(24)
+    driver_password = "48271"
     admin_password = secrets.token_urlsafe(28)
     admin_username = "e2e" + marker
     ids: dict[str, int] = {}

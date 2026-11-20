@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from conrado.store import (
     BusinessError, DELIVERY_STATUSES, OCCURRENCE_TYPES, REFUSAL_REASONS, ServiceUnavailable, client_timestamp,
     invoice_sort_key, login_limit_keys, normalize_admin_role, normalize_admin_username,
-    normalize_plate, normalized_location, normalized_quantity, occurrence_message,
+    normalize_driver_pin, normalize_plate, normalized_location, normalized_quantity, occurrence_message,
 )
 from conrado.supabase_storage import StorageError, detect_image
 
@@ -155,9 +155,10 @@ class PostgresStore:
                 WHERE key_hash=ANY(%s) AND blocked_until>now() LIMIT 1""", (keys,)).fetchone() is not None
 
     def record_login_failure(self, client: str, plate: str) -> None:
+        block_interval = "5 minutes" if str(plate).startswith("admin:") else "15 minutes"
         with self.connection() as db:
             for key in login_limit_keys(client, plate):
-                db.execute("""INSERT INTO app.login_limits(key_hash,failures,window_started,blocked_until)
+                db.execute(f"""INSERT INTO app.login_limits(key_hash,failures,window_started,blocked_until)
                     VALUES (%s,1,now(),NULL) ON CONFLICT(key_hash) DO UPDATE SET
                     failures=CASE WHEN app.login_limits.window_started<now()-interval '5 minutes'
                         THEN 1 ELSE LEAST(app.login_limits.failures+1,100) END,
@@ -165,7 +166,7 @@ class PostgresStore:
                         THEN now() ELSE app.login_limits.window_started END,
                     blocked_until=CASE
                         WHEN app.login_limits.window_started<now()-interval '5 minutes' THEN NULL
-                        WHEN app.login_limits.failures+1>=5 THEN now()+interval '5 minutes'
+                        WHEN app.login_limits.failures+1>=5 THEN now()+interval '{block_interval}'
                         ELSE NULL END""", (key,))
 
     def clear_login_failures(self, client: str, plate: str) -> None:
@@ -378,8 +379,7 @@ class PostgresStore:
             return {"trip_id": trip_id, "status": "released"}
 
     def set_driver_password(self, driver_id, password, *, actor="admin"):
-        if len(password) < 12:
-            raise BusinessError("A senha precisa ter pelo menos 12 caracteres")
+        password = normalize_driver_pin(password)
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260_000)
         with self.connection() as db:

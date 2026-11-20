@@ -34,6 +34,13 @@ class StoreTest(unittest.TestCase):
         with self.assertRaises(BusinessError):
             self.db.create_driver("Outro", "ABC1D23", "HR")
 
+    def test_pin_motorista_exige_cinco_digitos_nao_previsiveis(self):
+        for invalid in ("1234", "123456", "abcde", "12345", "00000"):
+            with self.subTest(pin=invalid), self.assertRaises(BusinessError):
+                self.db.set_driver_password(self.driver["driver_id"], invalid)
+        self.db.set_driver_password(self.driver["driver_id"], "48271")
+        self.assertTrue(self.db.authenticate_driver("ABC1D23", "48271"))
+
     @patch("conrado.store.ZoneInfo", side_effect=ZoneInfoNotFoundError)
     def test_ocorrencia_tem_fallback_de_fuso_no_windows(self, _zoneinfo):
         message = occurrence_message(
@@ -183,10 +190,10 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.db.trips()[0]["notes"], 0)
 
     def test_login_motorista_e_registro_idempotente_ocorrencia(self):
-        self.db.set_driver_password(self.driver["driver_id"], "SenhaIndividualSegura2026!")
+        self.db.set_driver_password(self.driver["driver_id"], "48271")
         with self.assertRaises(BusinessError):
             self.db.authenticate_driver("ABC1D23", "senhaerrada")
-        token = self.db.authenticate_driver("ABC-1D23", "SenhaIndividualSegura2026!")
+        token = self.db.authenticate_driver("ABC-1D23", "48271")
         self.assertEqual(self.db.driver_by_token(token), self.driver["driver_id"])
         trip = self.db.create_trip(self.driver["vehicle_id"], "Primeira carga")
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
@@ -204,7 +211,7 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(second["share_text"], first["share_text"])
         self.assertEqual(second["status"], "occurrence")
         self.assertEqual(self.db.driver_trip(self.driver["driver_id"])["notes"], [])
-        self.db.set_driver_password(self.driver["driver_id"], "OutraSenhaSegura2026!")
+        self.db.set_driver_password(self.driver["driver_id"], "63904")
         self.assertIsNone(self.db.driver_by_token(token))
 
     def test_baixa_nao_pode_ser_sobrescrita_e_recusa_tem_motivos_fechados(self):
@@ -264,8 +271,8 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(total, 1)
 
     def test_motorista_pode_encerrar_a_propria_sessao(self):
-        self.db.set_driver_password(self.driver["driver_id"], "SenhaIndividualSegura2026!")
-        token = self.db.authenticate_driver("ABC1D23", "SenhaIndividualSegura2026!")
+        self.db.set_driver_password(self.driver["driver_id"], "48271")
+        token = self.db.authenticate_driver("ABC1D23", "48271")
         self.assertEqual(self.db.driver_by_token(token), self.driver["driver_id"])
 
         self.db.revoke_driver_session(token)
@@ -273,8 +280,8 @@ class StoreTest(unittest.TestCase):
         self.assertIsNone(self.db.driver_by_token(token))
 
     def test_sessoes_expiradas_sao_recusadas_e_removidas_pela_manutencao(self):
-        self.db.set_driver_password(self.driver["driver_id"], "SenhaIndividualSegura2026!")
-        driver_token = self.db.authenticate_driver("ABC1D23", "SenhaIndividualSegura2026!")
+        self.db.set_driver_password(self.driver["driver_id"], "48271")
+        driver_token = self.db.authenticate_driver("ABC1D23", "48271")
         admin = self.db.create_admin("gestor-expirado", "SenhaAdministrativaSegura!")
         admin_token = self.db.authenticate_admin("gestor-expirado", "SenhaAdministrativaSegura!")
         past = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()

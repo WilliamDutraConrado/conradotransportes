@@ -2,6 +2,16 @@
 
 Todas as alterações relevantes deste projeto são registradas aqui.
 
+## 0.10.0-rc.2 — 2026-11-20
+
+### Acesso do motorista
+
+- Novos acessos usam PIN individual de exatamente 5 dígitos; sequências óbvias e números repetidos são recusados.
+- A administração orienta e valida o PIN antes do envio, enquanto o servidor repete a validação como fonte de verdade.
+- Credenciais anteriores continuam válidas somente durante a migração, evitando interromper uma rota antes da redefinição individual.
+- Cinco falhas em cinco minutos bloqueiam o motorista por quinze minutos; a conta administrativa mantém a política separada de senha forte.
+- Cache da PWA e versão de release avançados para `0.10.0-rc.2`.
+
 ## 0.10.0-rc.1 — 2026-11-20
 
 ### Operação do motorista

@@ -91,6 +91,14 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn(VERSION, (ROOT / "web" / "gestao.html").read_text(encoding="utf-8"))
         self.assertIn(VERSION, (ROOT / "web" / "sw.js").read_text(encoding="utf-8"))
 
+    def test_driver_pin_policy_is_visible_in_both_interfaces(self):
+        management = (ROOT / "web" / "gestao.html").read_text(encoding="utf-8")
+        driver = (ROOT / "web" / "motorista.html").read_text(encoding="utf-8")
+        script = (ROOT / "web" / "assets" / "gestao.js").read_text(encoding="utf-8")
+        self.assertIn('pattern="[0-9]{5}"', management)
+        self.assertIn("PIN individual", driver)
+        self.assertIn("/^[0-9]{5}$/", script)
+
 
 if __name__ == "__main__":
     unittest.main()

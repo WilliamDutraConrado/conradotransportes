@@ -270,9 +270,19 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(len(store.calls), 2)
         for sql, params in store.calls:
             self.assertIn("ON CONFLICT", sql)
+            self.assertIn("15 minutes", sql)
             self.assertEqual(len(params[0]), 64)
             self.assertNotIn("192.0.2.10", params)
             self.assertNotIn("ABC1D23", params)
+
+    def test_pin_motorista_e_bloqueio_admin_tem_politicas_separadas(self):
+        store = FakePostgres([])
+        with self.assertRaisesRegex(BusinessError, "menos previsível"):
+            store.set_driver_password(1, "12345")
+
+        admin_limit = FakePostgres([None, None])
+        admin_limit.record_login_failure("192.0.2.10", "admin:william")
+        self.assertTrue(all("5 minutes" in sql for sql, _ in admin_limit.calls))
 
     def test_retention_preview_does_not_delete_storage(self):
         path = "viagens/3/notas/2/event-123456789-abcdef012345.jpg"

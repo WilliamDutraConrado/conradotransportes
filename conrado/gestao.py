@@ -24,7 +24,8 @@ from conrado.version import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_BODY = 15_000_000
-LOGIN_WINDOW_SECONDS = 300
+ADMIN_LOGIN_BLOCK_SECONDS = 300
+DRIVER_LOGIN_BLOCK_SECONDS = 900
 STATIC_ROUTES = {
     "/assets/app.css": ("web/assets/app.css", "text/css; charset=utf-8", "no-cache"),
     "/assets/gestao.js": ("web/assets/gestao.js", "text/javascript; charset=utf-8", "no-cache"),
@@ -315,7 +316,7 @@ class Handler(BaseHTTPRequestHandler):
                 rate_key = "admin:" + username
                 if self.server.login_blocked(client, rate_key):
                     self._json(429, {"erro": "Muitas tentativas. Aguarde cinco minutos."},
-                               {"Retry-After": str(LOGIN_WINDOW_SECONDS)})
+                               {"Retry-After": str(ADMIN_LOGIN_BLOCK_SECONDS)})
                     return
                 try:
                     token = self.server.db.authenticate_admin(username, body["password"])
@@ -334,8 +335,8 @@ class Handler(BaseHTTPRequestHandler):
                 client = self.client_address[0]
                 plate = str(body.get("plate", ""))
                 if self.server.login_blocked(client, plate):
-                    self._json(429, {"erro": "Muitas tentativas. Aguarde cinco minutos."},
-                               {"Retry-After": str(LOGIN_WINDOW_SECONDS)})
+                    self._json(429, {"erro": "Muitas tentativas. Aguarde quinze minutos."},
+                               {"Retry-After": str(DRIVER_LOGIN_BLOCK_SECONDS)})
                     return
                 try:
                     token = self.server.db.authenticate_driver(body["plate"], body["password"])

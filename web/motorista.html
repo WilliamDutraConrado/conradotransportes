@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DutraLog">
   <meta name="application-name" content="DutraLog">
-  <meta name="app-version" content="0.10.0-rc.1">
+  <meta name="app-version" content="0.10.0-rc.2">
   <title>DutraLog • Motorista</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -51,13 +51,13 @@
         <label>Placa do caminhão
           <input name="plate" placeholder="ABC-1D23" required autocapitalize="characters" autocomplete="username" inputmode="text" enterkeyhint="next">
         </label>
-        <label>Senha individual
+        <label>PIN individual
           <input name="password" type="password" required autocomplete="current-password" enterkeyhint="go">
         </label>
         <button>Entrar</button>
       </form>
       <button id="offlineResume" class="ghost" type="button" hidden>Continuar rota salva offline</button>
-      <p class="hint" id="loginHint">Para iniciar uma rota nova é preciso conexão. Uma rota já carregada permanece disponível neste aparelho.</p>
+      <p class="hint" id="loginHint">Novos acessos usam um PIN individual de 5 dígitos. Durante a migração, a credencial anterior permanece válida até ser redefinida pelo administrador.</p>
     </section>
 
     <section class="card" id="queueBox" hidden>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#102a43">
   <meta name="description" content="DutraTracking: visão operacional de viagens, entregas e ocorrências.">
-  <meta name="app-version" content="0.10.0-rc.1">
+  <meta name="app-version" content="0.10.0-rc.2">
   <title>DutraTracking • Operação</title>
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -130,10 +130,11 @@
 
   <dialog id="passwordDialog">
     <form method="dialog" class="card">
-      <h2>Redefinir senha do motorista</h2>
+      <h2>Definir PIN do motorista</h2>
       <input id="passwordDriverId" type="hidden">
-      <label>Nova senha<input id="driverPassword" type="password" minlength="12" autocomplete="new-password" required></label>
-      <div class="actions"><button value="cancel" class="ghost">Cancelar</button><button id="confirmDriverPassword" value="default">Salvar senha</button></div>
+      <label>PIN individual de 5 dígitos<input id="driverPassword" type="password" inputmode="numeric" minlength="5" maxlength="5" pattern="[0-9]{5}" autocomplete="new-password" required></label>
+      <p class="hint">Use um PIN diferente para cada motorista. Sequências e números repetidos não são aceitos.</p>
+      <div class="actions"><button value="cancel" class="ghost">Cancelar</button><button id="confirmDriverPassword" value="default">Salvar PIN</button></div>
     </form>
   </dialog>
 

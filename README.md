@@ -2,7 +2,7 @@
 
 Projeto-piloto de gestão de entregas para a Conrado Transportes. O DutraLog atende a operação do motorista; o DutraTracking concentra a visão administrativa. Desenvolvimento iniciado em novembro de 2026.
 
-Versão candidata atual: **0.10.0-rc.1**.
+Versão candidata atual: **0.10.0-rc.2**.
 
 Escopo: importação manual de XML de NF-e, viagens vinculadas a placas, controle individual de notas e canhotos, ocorrências, painel administrativo e PWA instalável com fila offline.
 
@@ -82,7 +82,7 @@ Depois de uma baixa confirmada ou preservada na fila offline, a NF-e sai da rota
 
 O painel administrativo também consolida a produtividade por motorista: viagens totais, em rota e encerradas; NF-e entregues, pendentes e com ocorrência; e percentual de entrega concluída. Recusas e ocorrências não são contabilizadas como entregas concluídas; registros parciais antigos permanecem identificados apenas no histórico.
 
-O acesso do motorista bloqueia temporariamente novas tentativas após cinco senhas inválidas em cinco minutos. O limitador persiste entre reinícios e guarda somente hashes de IP e placa. A área móvel possui saída explícita, que revoga a sessão no servidor. As respostas incluem proteção contra enquadramento, política de referência restrita e permissões mínimas de câmera. A gestão possui login individual, sessão de oito horas, logout e autorização por perfil. Esses controles ajudam o piloto, mas ainda não substituem HTTPS na borda, monitoramento e homologação presencial.
+Novos acessos de motorista usam PIN individual de exatamente cinco dígitos; sequências óbvias e números repetidos são recusados. Durante a migração, credenciais antigas continuam válidas somente até a redefinição individual. Após cinco tentativas inválidas em cinco minutos, o acesso do motorista fica bloqueado por quinze minutos. O limitador persiste entre reinícios e guarda somente hashes de IP e placa. A área móvel possui saída explícita, que revoga a sessão no servidor. As respostas incluem proteção contra enquadramento, política de referência restrita e permissões mínimas de câmera. A gestão possui login individual, sessão de oito horas, logout e autorização por perfil. Esses controles ajudam o piloto, mas ainda não substituem HTTPS na borda, monitoramento e homologação presencial.
 
 O painel administrativo permite abrir uma evidência por acesso temporário de no
 máximo cinco minutos; o bucket permanece privado. O servidor também expõe
