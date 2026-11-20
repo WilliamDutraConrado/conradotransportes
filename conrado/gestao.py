@@ -32,7 +32,12 @@ STATIC_ROUTES = {
     "/assets/motorista.js": ("web/assets/motorista.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/offline-queue.js": ("web/assets/offline-queue.js", "text/javascript; charset=utf-8", "no-cache"),
-    "/assets/icon.svg": ("web/assets/icon.svg", "image/svg+xml", "public, max-age=86400"),
+    "/assets/emblema-dutralog.webp": ("web/assets/emblema-dutralog.webp", "image/webp", "public, max-age=86400"),
+    "/assets/dutralog-apple-touch-icon.png": ("web/assets/dutralog-apple-touch-icon.png", "image/png", "public, max-age=86400"),
+    "/assets/dutralog-icon-192.png": ("web/assets/dutralog-icon-192.png", "image/png", "public, max-age=86400"),
+    "/assets/dutralog-icon-512.png": ("web/assets/dutralog-icon-512.png", "image/png", "public, max-age=86400"),
+    "/assets/dutralog-icon-maskable-512.png": ("web/assets/dutralog-icon-maskable-512.png", "image/png", "public, max-age=86400"),
+    # Rotas legadas mantidas por uma versão para não quebrar instalações em atualização.
     "/assets/apple-touch-icon.png": ("web/assets/apple-touch-icon.png", "image/png", "public, max-age=86400"),
     "/assets/icon-192.png": ("web/assets/icon-192.png", "image/png", "public, max-age=86400"),
     "/assets/icon-512.png": ("web/assets/icon-512.png", "image/png", "public, max-age=86400"),

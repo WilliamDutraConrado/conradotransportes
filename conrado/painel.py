@@ -13,6 +13,7 @@ from conrado.importer import NFeError, parse_nfe
 
 HERE = Path(__file__).resolve().parent.parent
 UI = HERE / "web" / "index.html"
+BRAND_IMAGE = HERE / "web" / "assets" / "emblema-dutralog.webp"
 DEFAULT_REGEX = (
     r"\b(?:PLACA|VE[IÍ]CULO)\s*[:=-]?\s*"
     r"([A-Z]{3}[0-9][A-Z0-9][0-9]{2})\b"
@@ -62,7 +63,11 @@ def inspect_uploads(items: list, regex: str) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if urlparse(self.path).path != "/":
+        path = urlparse(self.path).path
+        if path == "/assets/emblema-dutralog.webp":
+            self._respond(200, BRAND_IMAGE.read_bytes(), "image/webp")
+            return
+        if path != "/":
             self.send_error(404)
             return
         self._respond(200, UI.read_bytes(), "text/html; charset=utf-8")

@@ -2,6 +2,15 @@
 
 Todas as alterações relevantes deste projeto são registradas aqui.
 
+## 0.10.0-rc.3 — 2026-11-20
+
+### Identidade visual
+
+- Emblema oficial fornecido para o DutraLog aplicado ao aplicativo do motorista, ao DutraTracking e ao painel local de conferência.
+- Cabeçalhos, favicon, Apple Touch Icon e ícones PWA Android/maskable agora usam a mesma fonte visual.
+- Arquivo-mestre e gerador reproduzível de ícones mantidos no projeto, sem alterar proporção ou recortar o símbolo.
+- Cache da PWA e versão de release avançados para `0.10.0-rc.3`, permitindo a atualização controlada nos aparelhos já instalados.
+
 ## 0.10.0-rc.2 — 2026-11-20
 
 ### Acesso do motorista

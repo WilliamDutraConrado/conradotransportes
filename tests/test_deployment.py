@@ -65,22 +65,26 @@ class DeploymentFilesTests(unittest.TestCase):
         manifest = json.loads((ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8"))
         driver = (ROOT / "web" / "motorista.html").read_text(encoding="utf-8")
         management = (ROOT / "web" / "gestao.html").read_text(encoding="utf-8")
-        icon = (ROOT / "web" / "assets" / "icon.svg").read_text(encoding="utf-8")
+        emblem = (ROOT / "web" / "assets" / "emblema-dutralog.webp").read_bytes()
         self.assertEqual(manifest["short_name"], "DutraLog")
         self.assertIn("DutraLog", driver)
         self.assertIn("DutraTracking", management)
-        self.assertIn("DutraLog e do DutraTracking", icon)
+        self.assertIn('/assets/emblema-dutralog.webp', driver)
+        self.assertIn('/assets/emblema-dutralog.webp', management)
+        self.assertEqual(emblem[:4], b"RIFF")
+        self.assertEqual(emblem[8:12], b"WEBP")
         self.assertNotIn("Conrado Entregas", driver)
         self.assertNotIn("Conrado Entregas", management)
 
     def test_pwa_has_android_maskable_and_apple_icons(self):
         manifest = json.loads((ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8"))
         icons = {item["src"]: item for item in manifest["icons"]}
-        self.assertEqual(icons["/assets/icon-192.png"]["sizes"], "192x192")
-        self.assertEqual(icons["/assets/icon-512.png"]["sizes"], "512x512")
-        self.assertEqual(icons["/assets/icon-maskable-512.png"]["purpose"], "maskable")
-        for name, size in (("apple-touch-icon.png", 180), ("icon-192.png", 192),
-                           ("icon-512.png", 512), ("icon-maskable-512.png", 512)):
+        self.assertEqual(icons["/assets/dutralog-icon-192.png"]["sizes"], "192x192")
+        self.assertEqual(icons["/assets/dutralog-icon-512.png"]["sizes"], "512x512")
+        self.assertEqual(icons["/assets/dutralog-icon-maskable-512.png"]["purpose"], "maskable")
+        for name, size in (("dutralog-apple-touch-icon.png", 180), ("dutralog-icon-192.png", 192),
+                           ("dutralog-icon-512.png", 512), ("dutralog-icon-maskable-512.png", 512),
+                           ("emblema-dutralog-master.png", 1024)):
             content = (ROOT / "web" / "assets" / name).read_bytes()
             self.assertEqual(content[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(struct.unpack(">II", content[16:24]), (size, size))

@@ -157,10 +157,16 @@ class APITest(unittest.TestCase):
             html = response.read().decode()
             self.assertNotIn("'unsafe-inline'", response.headers["Content-Security-Policy"])
         self.assertIn("manifest.webmanifest", html)
-        for asset in ("apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"):
+        for asset in ("dutralog-apple-touch-icon.png", "dutralog-icon-192.png",
+                      "dutralog-icon-512.png", "dutralog-icon-maskable-512.png"):
             with urlopen(base + "/assets/" + asset, timeout=5) as response:
                 self.assertEqual(response.headers.get_content_type(), "image/png")
                 self.assertEqual(response.read(8), b"\x89PNG\r\n\x1a\n")
+        with urlopen(base + "/assets/emblema-dutralog.webp", timeout=5) as response:
+            self.assertEqual(response.headers.get_content_type(), "image/webp")
+            emblem = response.read(12)
+            self.assertEqual(emblem[:4], b"RIFF")
+            self.assertEqual(emblem[8:12], b"WEBP")
 
     def test_origem_configuravel_e_origem_desconhecida_bloqueada(self):
         self.server.allowed_origins.add("https://piloto.example")

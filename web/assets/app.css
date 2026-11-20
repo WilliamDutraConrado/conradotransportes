@@ -79,7 +79,15 @@ button.danger { background: #9b3535; }
   gap: 18px;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-symbol { flex: 0 0 auto; border-radius: 12px; box-shadow: 0 4px 12px #102a4321; }
+.brand-symbol {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  object-fit: cover;
+  background: var(--navy);
+  box-shadow: 0 5px 16px #102a4326;
+}
 .brand-copy { min-width: 0; }
 .brand h1 { margin: 0; color: var(--navy); font-size: 1.28rem; line-height: 1.1; letter-spacing: -.02em; }
 .brand p { margin: 4px 0 0; color: var(--muted); font-size: .875rem; }
@@ -296,6 +304,7 @@ dialog .card { margin: 0; box-shadow: none; }
 
 @media (max-width: 760px) {
   .topbar-inner { align-items: center; padding: 14px 18px; }
+  .brand-symbol { width: 48px; height: 48px; border-radius: 12px; }
   .brand p { display: none; }
   main { padding: 16px 14px 36px; }
   .grid, .kpis { grid-template-columns: 1fr; }

@@ -12,7 +12,8 @@ from conrado.maintenance import retention_settings
 
 PWA_FILES = (
     "web/manifest.webmanifest", "web/sw.js", "web/assets/app.css",
-    "web/assets/motorista.js", "web/assets/offline-queue.js", "web/assets/icon.svg",
+    "web/assets/motorista.js", "web/assets/offline-queue.js",
+    "web/assets/emblema-dutralog.webp", "web/assets/dutralog-icon-192.png",
 )
 
 
