@@ -1,18 +1,18 @@
-# Implantação planejada — Railway + Supabase
+# Implantação do piloto — Render + Supabase
 
 ## Status atual
 
-**Não publicar a aplicação atual em produção.** O piloto local utiliza HTTP de desenvolvimento. O backend PostgreSQL e o Storage privado foram validados de ponta a ponta com dados fictícios, mas ainda faltam as proteções necessárias para exposição na internet.
+O serviço de homologação usa Render atrás de HTTPS, PostgreSQL privado e Storage privado no Supabase. A liberação deve permanecer restrita ao piloto controlado; expansão ou uso como produção ampla depende de homologação em aparelhos reais, monitoramento e política de retenção aprovada.
 
-Infraestrutura validada em 18/11/2026 no projeto de desenvolvimento `frarirxzbajnfifngkfq`, região `us-east-1`: schema privado `app` com doze tabelas e RLS ativo, sem acesso de schema para `anon` ou `authenticated`; bucket privado `canhotos`, permitindo apenas JPEG e PNG de até 5 MB. Nenhum documento real foi importado e nenhuma cobrança foi autorizada.
+Infraestrutura original validada em 18/11/2026 no projeto de desenvolvimento `frarirxzbajnfifngkfq`, região `us-east-1`: schema privado `app` com doze tabelas e RLS ativo, sem acesso de schema para `anon` ou `authenticated`; bucket privado `canhotos`, permitindo apenas JPEG e PNG de até 5 MB. A migração 007 acrescenta a décima terceira tabela, `delivery_starts`, também privada. Nenhum documento real foi importado e nenhuma cobrança foi autorizada.
 
 Na mesma data, a conexão real pelo pooler IPv4 foi aprovada pelo preflight e o
-smoke test transacional exercitou as doze tabelas com rollback confirmado. Não
+smoke test transacional exercitou as tabelas existentes com rollback confirmado. Não
 restaram registros fictícios e nenhum arquivo foi enviado ao Storage.
 
 Em 18/11/2026, o teste E2E real cadastrou administrador, motorista e veículo fictícios,
-criou e liberou uma viagem, importou uma NF-e sintética, gerou o texto de
-ocorrência, enviou um PNG sintético ao bucket privado, validou uma URL temporária,
+criou e liberou uma viagem, importou uma NF-e sintética, registrou uma baixa,
+enviou um PNG sintético ao bucket privado, validou uma URL temporária,
 encerrou a viagem e revogou a sessão. A exclusão do objeto pela API do Storage e
 a limpeza por IDs exatos foram confirmadas; nenhum arquivo ou registro permaneceu.
 
@@ -24,20 +24,20 @@ ou código do GitHub.
 
 ## Arquitetura-alvo
 
-- **Railway:** aplicação Python HTTPS atrás do proxy, serviço sem disco persistente de documentos. Variáveis sensíveis somente no gerenciador de secrets.
+- **Render:** aplicação Python HTTPS atrás do proxy, serviço sem disco persistente de documentos. Variáveis sensíveis somente no gerenciador de secrets.
 - **Supabase Postgres:** schema `app` privado; dados das transportadoras e viagens; conexão exclusiva pelo backend, com pool e credenciais protegidas.
 - **Supabase Storage:** bucket privado `canhotos`; o backend concede acesso temporário a comprovantes autorizados. Nunca criar bucket público.
 - **Motorista PWA:** instalação pelo navegador, autenticação individual, fila local cifrada, envio idempotente e sincronização com confirmação do servidor.
 
 ## Antes de qualquer deploy
 
-1. Instalar/autorizar os conectores Railway e Supabase nas contas corretas.
+1. Confirmar que o serviço Render e o projeto Supabase pertencem às contas corretas.
 2. Criar projeto **de desenvolvimento** sem informações reais. Não contratar plano pago sem aprovação.
 3. ~~Revisar `001_schema.sql` e aplicar em uma base vazia de teste.~~ Concluído no ambiente de desenvolvimento em 17/11/2026.
 4. ~~Validar o backend PostgreSQL e o Storage privado com dados integralmente fictícios.~~ Concluído em 17/11/2026, incluindo limpeza verificada.
 5. Adicionar TLS e permissões multiempresa. Autenticação individual, perfis administrativos, fila offline cifrada, atribuição de auditoria, rate limiting, retenção configurável e rotina de backup já foram implementados.
 6. ~~Preparar healthcheck, variáveis de ambiente, migrações controladas e testes de integração.~~ Concluído no código; observabilidade externa depende do provedor.
-7. Somente depois criar o serviço Railway, configurar domínio de teste e testar fluxo completo com dados fictícios.
+7. O push em `main` aciona o deploy automático no Render; validar `/healthz`, `/readyz` e o fluxo sintético depois de cada versão.
 
 ## Segredos que nunca devem ir ao GitHub
 
@@ -77,30 +77,31 @@ automática. O bucket privado `canhotos` já existe com JPEG/PNG e limite de 5 M
 Migrações incrementais conhecidas são aplicadas explicitamente, por exemplo:
 `python -m conrado.migrate 003_persistent_login_limits`. O executor recusa
 nomes arbitrários e verifica RLS e ausência de leitura por `anon` e
-`authenticated` depois do commit. As migrações 003, 004 e 005 foram aplicadas e
-validadas no ambiente de desenvolvimento em 18/11/2026. A migração 004 cria as
+`authenticated` depois do commit. As migrações 003 a 007 foram aplicadas e
+validadas no ambiente de desenvolvimento até 20/11/2026. A migração 004 cria as
 tabelas privadas sem usuário ou senha; a 005 adiciona os perfis `admin`,
 `operator` e `auditor`, preservando contas anteriores. A migração 006 prepara
-índices para retenção e diagnóstico e ainda precisa ser aplicada no ambiente.
+índices para retenção e diagnóstico. A migração 007 adiciona início de
+descarregamento, tempo, localização pontual e campos estruturados de ocorrência.
 
 Copie `.env.example` para `.env`, preencha os segredos apenas no computador (o
 arquivo é ignorado pelo Git) e rode
 `python -m conrado.preflight`. A verificação é **somente leitura**: consulta a
-existência das doze tabelas, RLS, ausência de acesso dos papéis `anon` e
+existência das treze tabelas, RLS, ausência de acesso dos papéis `anon` e
 `authenticated` ao schema privado e as restrições do bucket. Se falhar, informa o ponto pendente sem
 imprimir senhas ou chaves. Não substitui testes reais de importação e entrega.
 
-Depois da pré-verificação, `python -m conrado.smoke` exercita as doze tabelas
+Depois da pré-verificação, `python -m conrado.smoke` exercita as treze tabelas
 com dados totalmente fictícios e força rollback. O comando confirma em uma
 segunda conexão que nenhum registro permaneceu e não envia arquivos ao Storage.
 
 `python -m conrado.e2e` valida a API HTTP local conectada ao Supabase: cadastro
-fictício, viagem, importação de NF-e sintética, ocorrência com PNG sintético,
-URL temporária, encerramento e logout. A limpeza usa somente os IDs e o caminho
+fictício, viagem, importação de NF-e sintética, início de descarregamento, baixa
+com PNG sintético, ocultação da NF-e, URL temporária, encerramento e logout. A limpeza usa somente os IDs e o caminho
 criados no teste e é verificada no banco e na listagem autenticada do bucket.
 
-**Não liberar `conrado.gestao` para uso operacional ainda:** o servidor aceita
-hospedagem de teste somente atrás de HTTPS, com origem exata configurada e a
+**Liberar somente no piloto controlado:** o servidor aceita
+hospedagem somente atrás de HTTPS, com origem exata configurada e a
 chave administrativa estática desabilitada. A autenticação administrativa
 individual, os perfis e permissões, a atribuição de cada alteração à sessão, a
 fila offline cifrada, o tratamento centralizado de falhas, o limitador de login

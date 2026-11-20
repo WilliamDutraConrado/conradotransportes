@@ -102,8 +102,40 @@ CREATE TABLE IF NOT EXISTS app.delivery_events (
     arrival_time varchar(5) NOT NULL DEFAULT '',
     affected_item varchar(500) NOT NULL DEFAULT '',
     seller_name varchar(100) NOT NULL DEFAULT '',
+    start_id varchar(90),
+    completed_at timestamptz NOT NULL DEFAULT now(),
+    occurrence_type varchar(30) NOT NULL DEFAULT '',
+    observation varchar(1000) NOT NULL DEFAULT '',
+    expected_quantity varchar(40) NOT NULL DEFAULT '',
+    received_quantity varchar(40) NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS app.delivery_starts (
+    id varchar(90) PRIMARY KEY,
+    note_id bigint NOT NULL REFERENCES app.notes(id),
+    driver_id bigint NOT NULL REFERENCES app.drivers(id),
+    started_at timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
+    latitude numeric(9,6),
+    longitude numeric(9,6),
+    accuracy_m numeric(8,1),
+    CHECK ((latitude IS NULL AND longitude IS NULL AND accuracy_m IS NULL) OR
+           (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180 AND
+            accuracy_m BETWEEN 0 AND 10000))
+);
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname='delivery_events_start_fk'
+          AND conrelid='app.delivery_events'::regclass
+    ) THEN
+        ALTER TABLE app.delivery_events ADD CONSTRAINT delivery_events_start_fk
+            FOREIGN KEY (start_id) REFERENCES app.delivery_starts(id);
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS delivery_events_start_once
+    ON app.delivery_events(start_id) WHERE start_id IS NOT NULL;
 
 -- As fotos ficarão em um bucket PRIVADO do Supabase Storage, não no PostgreSQL.
 CREATE TABLE IF NOT EXISTS app.evidence (
@@ -136,6 +168,7 @@ ALTER TABLE app.admin_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.admin_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.driver_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.login_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.delivery_starts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.delivery_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.audit ENABLE ROW LEVEL SECURITY;

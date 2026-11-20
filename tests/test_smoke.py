@@ -46,11 +46,11 @@ class SmokeTests(unittest.TestCase):
 
         self.assertTrue(transaction.rolled_back)
         self.assertTrue(result["rollback_confirmed"])
-        self.assertEqual(result["tables_exercised"], 12)
+        self.assertEqual(result["tables_exercised"], 13)
         sql = " ".join(statement for statement, _ in transaction.calls)
         for table in ("drivers", "vehicles", "trips", "notes", "driver_auth", "driver_sessions",
                       "admin_users", "admin_sessions", "login_limits",
-                      "delivery_events", "evidence", "audit"):
+                      "delivery_starts", "delivery_events", "evidence", "audit"):
             self.assertIn("app." + table, sql)
 
 

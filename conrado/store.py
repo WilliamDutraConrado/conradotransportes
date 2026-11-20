@@ -13,6 +13,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -21,6 +22,10 @@ from conrado.supabase_storage import StorageError, detect_image
 
 class BusinessError(ValueError):
     """Erro de validação ou regra operacional."""
+
+
+class ServiceUnavailable(RuntimeError):
+    """Falha transitória segura, elegível para a fila offline."""
 
 
 def normalize_plate(plate: str) -> str:
@@ -38,6 +43,9 @@ def normalize_admin_username(username: str) -> str:
 
 
 ADMIN_ROLES = frozenset({"admin", "operator", "auditor"})
+DELIVERY_STATUSES = frozenset({"delivered", "refused", "occurrence"})
+REFUSAL_REASONS = frozenset({"Pedido Duplicado", "Sem Pedido"})
+OCCURRENCE_TYPES = frozenset({"general", "partial_shortage"})
 
 
 def normalize_admin_role(role: str) -> str:
@@ -51,6 +59,56 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def invoice_sort_key(value) -> tuple:
+    """Ordena NF-e naturalmente, mantendo uma saída estável para valores atípicos."""
+    text = str(value or "").strip()
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in re.split(r"(\d+)", text) if part
+    ) or ((1, ""),)
+
+
+def client_timestamp(value: str, label: str) -> datetime:
+    """Valida horário informado pelo aparelho sem confundi-lo com o horário do servidor."""
+    try:
+        moment = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise BusinessError(f"{label} inválido") from exc
+    if moment.tzinfo is None:
+        raise BusinessError(f"{label} precisa incluir o fuso horário")
+    moment = moment.astimezone(timezone.utc)
+    reference = datetime.now(timezone.utc)
+    if moment > reference + timedelta(minutes=15) or moment < reference - timedelta(days=7):
+        raise BusinessError(f"{label} está fora do intervalo permitido")
+    return moment
+
+
+def normalized_location(latitude, longitude, accuracy_m) -> tuple[float | None, float | None, float | None]:
+    values = (latitude, longitude, accuracy_m)
+    if all(value in (None, "") for value in values):
+        return None, None, None
+    if any(value in (None, "") for value in values):
+        raise BusinessError("Localização incompleta")
+    try:
+        lat, lng, accuracy = map(float, values)
+    except (TypeError, ValueError) as exc:
+        raise BusinessError("Localização inválida") from exc
+    if not -90 <= lat <= 90 or not -180 <= lng <= 180 or not 0 <= accuracy <= 10_000:
+        raise BusinessError("Localização fora dos limites válidos")
+    return round(lat, 6), round(lng, 6), round(accuracy, 1)
+
+
+def normalized_quantity(value: str, label: str) -> Decimal:
+    text = str(value or "").strip().replace(",", ".")
+    try:
+        quantity = Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise BusinessError(f"{label} inválida") from exc
+    if not quantity.is_finite() or quantity < 0 or quantity > Decimal("9999999999.9999"):
+        raise BusinessError(f"{label} inválida")
+    return quantity
+
+
 def login_limit_keys(client: str, plate: str) -> tuple[str, str]:
     normalized_plate = str(plate).strip().upper().replace("-", "").replace(" ", "")
     return tuple(
@@ -60,7 +118,7 @@ def login_limit_keys(client: str, plate: str) -> tuple[str, str]:
 
 
 def occurrence_message(note: dict, status: str, reason: str, created_at, arrival_time: str,
-                       affected_item: str, seller_name: str) -> str | None:
+                       affected_item: str, seller_name: str, observation: str = "") -> str | None:
     """Monta o texto operacional sem depender de preenchimento duplicado pelo motorista."""
     if status == "delivered":
         return None
@@ -90,6 +148,8 @@ def occurrence_message(note: dict, status: str, reason: str, created_at, arrival
     ]
     if affected_item.strip():
         lines.append(f"Item: {affected_item.strip()}")
+    if observation.strip():
+        lines.append(f"Observação: {observation.strip()}")
     lines.extend([
         f"Vendedor: {seller_name.strip() or note['seller'] or 'Não informado no XML'}",
         f"Motorista: {note['driver']}",
@@ -185,7 +245,19 @@ class Store:
                 reason TEXT NOT NULL DEFAULT '',
                 arrival_time TEXT NOT NULL DEFAULT '', affected_item TEXT NOT NULL DEFAULT '',
                 seller_name TEXT NOT NULL DEFAULT '',
+                start_id TEXT REFERENCES delivery_starts(id), completed_at TEXT NOT NULL DEFAULT '',
+                occurrence_type TEXT NOT NULL DEFAULT '', observation TEXT NOT NULL DEFAULT '',
+                expected_quantity TEXT NOT NULL DEFAULT '', received_quantity TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS delivery_starts (
+                id TEXT PRIMARY KEY, note_id INTEGER NOT NULL REFERENCES notes(id),
+                driver_id INTEGER NOT NULL REFERENCES drivers(id),
+                started_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
+                latitude REAL, longitude REAL, accuracy_m REAL,
+                CHECK ((latitude IS NULL AND longitude IS NULL AND accuracy_m IS NULL) OR
+                       (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180 AND
+                        accuracy_m BETWEEN 0 AND 10000))
             );
             CREATE TABLE IF NOT EXISTS evidence (
                 id INTEGER PRIMARY KEY, note_id INTEGER NOT NULL REFERENCES notes(id),
@@ -196,6 +268,9 @@ class Store:
             CREATE INDEX IF NOT EXISTS audit_by_happened_at ON audit(happened_at);
             CREATE INDEX IF NOT EXISTS evidence_by_created_at ON evidence(created_at);
             CREATE INDEX IF NOT EXISTS events_by_created_at ON delivery_events(created_at);
+            CREATE INDEX IF NOT EXISTS starts_by_note ON delivery_starts(note_id, recorded_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS events_start_once ON delivery_events(start_id)
+                WHERE start_id IS NOT NULL;
             CREATE INDEX IF NOT EXISTS admin_sessions_by_expiry ON admin_sessions(expires_at);
             CREATE INDEX IF NOT EXISTS driver_sessions_by_expiry ON driver_sessions(expires_at);
             """)
@@ -209,9 +284,19 @@ class Store:
                 if name not in note_columns:
                     db.execute(f"ALTER TABLE notes ADD COLUMN {name} {definition}")
             event_columns = {row["name"] for row in db.execute("PRAGMA table_info(delivery_events)")}
-            for name in ("arrival_time", "affected_item", "seller_name"):
+            for name, definition in (
+                ("arrival_time", "TEXT NOT NULL DEFAULT ''"),
+                ("affected_item", "TEXT NOT NULL DEFAULT ''"),
+                ("seller_name", "TEXT NOT NULL DEFAULT ''"),
+                ("start_id", "TEXT"),
+                ("completed_at", "TEXT NOT NULL DEFAULT ''"),
+                ("occurrence_type", "TEXT NOT NULL DEFAULT ''"),
+                ("observation", "TEXT NOT NULL DEFAULT ''"),
+                ("expected_quantity", "TEXT NOT NULL DEFAULT ''"),
+                ("received_quantity", "TEXT NOT NULL DEFAULT ''"),
+            ):
                 if name not in event_columns:
-                    db.execute(f"ALTER TABLE delivery_events ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+                    db.execute(f"ALTER TABLE delivery_events ADD COLUMN {name} {definition}")
             admin_columns = {row["name"] for row in db.execute("PRAGMA table_info(admin_users)")}
             if "role" not in admin_columns:
                 # Contas locais anteriores eram, por definição, administradores completos.
@@ -254,14 +339,29 @@ class Store:
         if not 1 <= limit <= 50_000:
             raise BusinessError("Limite de exportação inválido")
         with self.connection() as db:
-            rows = db.execute("""SELECT e.created_at,e.status,e.reason,e.arrival_time,e.affected_item,
-                e.seller_name,n.number AS invoice,n.recipient,n.city,t.label AS trip,v.plate,
+            rows = db.execute("""SELECT e.created_at,e.completed_at,e.status,e.reason,e.arrival_time,
+                e.affected_item,e.occurrence_type,e.observation,e.expected_quantity,e.received_quantity,
+                e.seller_name,s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                n.number AS invoice,n.recipient,n.city,t.label AS trip,v.plate,
                 d.name AS driver,CASE WHEN x.id IS NULL THEN 0 ELSE 1 END AS has_evidence
                 FROM delivery_events e JOIN notes n ON n.id=e.note_id
                 JOIN trips t ON t.id=n.trip_id JOIN vehicles v ON v.id=t.vehicle_id
                 JOIN drivers d ON d.id=e.driver_id LEFT JOIN evidence x ON x.event_id=e.id
+                LEFT JOIN delivery_starts s ON s.id=e.start_id
                 WHERE e.status<>'delivered' ORDER BY e.created_at,e.id LIMIT ?""", (limit,)).fetchall()
-            return [dict(row) for row in rows]
+            result = []
+            for row in rows:
+                item = dict(row)
+                item["duration_seconds"] = ""
+                if item.get("started_at") and item.get("completed_at"):
+                    try:
+                        started = datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                        completed = datetime.fromisoformat(item["completed_at"].replace("Z", "+00:00"))
+                        item["duration_seconds"] = max(0, int((completed - started).total_seconds()))
+                    except ValueError:
+                        pass
+                result.append(item)
+            return result
 
     def cleanup_retention(self, *, now_at: datetime, evidence_before: datetime,
                           audit_before: datetime, apply: bool = False) -> dict:
@@ -431,25 +531,59 @@ class Store:
                 return None
             notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.city,n.seller,n.items_json,n.status,
                 n.gross_weight,n.volumes FROM notes n WHERE n.trip_id=?
-                ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
+                ORDER BY n.id""", (trip_id,)).fetchall()
             events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.arrival_time,
-                e.affected_item,e.seller_name,e.created_at,
+                e.affected_item,e.seller_name,e.created_at,e.completed_at,e.occurrence_type,
+                e.observation,e.expected_quantity,e.received_quantity,
+                s.started_at,s.latitude,s.longitude,s.accuracy_m,
                 d.name AS driver,CASE WHEN EXISTS (
                     SELECT 1 FROM evidence x WHERE x.event_id=e.id
                 ) THEN 1 ELSE 0 END AS has_evidence
                 FROM delivery_events e JOIN drivers d ON d.id=e.driver_id
+                LEFT JOIN delivery_starts s ON s.id=e.start_id
                 JOIN notes n ON n.id=e.note_id WHERE n.trip_id=?
                 ORDER BY e.created_at,e.id""", (trip_id,)).fetchall()
+            reversals = db.execute("""SELECT a.object_id AS note_id,a.happened_at,a.actor,a.payload
+                FROM audit a JOIN notes n ON n.id=a.object_id
+                WHERE a.object_type='note' AND a.event='delivery_reverted' AND n.trip_id=?
+                ORDER BY a.happened_at,a.id""", (trip_id,)).fetchall()
+            active_starts = db.execute("""SELECT s.note_id,s.started_at,s.latitude,s.longitude,s.accuracy_m
+                FROM delivery_starts s LEFT JOIN delivery_events e ON e.start_id=s.id
+                JOIN notes n ON n.id=s.note_id
+                WHERE n.trip_id=? AND n.status='pending' AND e.id IS NULL
+                ORDER BY s.recorded_at DESC""", (trip_id,)).fetchall()
             events_by_note: dict[int, list[dict]] = {}
             for event in events:
                 item = dict(event)
                 item["has_evidence"] = bool(item["has_evidence"])
+                item["duration_seconds"] = None
+                if item.get("started_at") and item.get("completed_at"):
+                    try:
+                        started = datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                        completed = datetime.fromisoformat(item["completed_at"].replace("Z", "+00:00"))
+                        item["duration_seconds"] = max(0, int((completed - started).total_seconds()))
+                    except ValueError:
+                        pass
                 events_by_note.setdefault(item.pop("note_id"), []).append(item)
+            reversals_by_note: dict[int, list[dict]] = {}
+            for reversal in reversals:
+                item = dict(reversal)
+                try:
+                    item["payload"] = json.loads(item["payload"])
+                except (TypeError, json.JSONDecodeError):
+                    item["payload"] = {}
+                reversals_by_note.setdefault(item.pop("note_id"), []).append(item)
+            active_starts_by_note: dict[int, dict] = {}
+            for start in active_starts:
+                item = dict(start)
+                active_starts_by_note.setdefault(item.pop("note_id"), item)
             result_notes = []
-            for note in notes:
+            for note in sorted(notes, key=lambda row: (invoice_sort_key(row["number"]), row["id"])):
                 item = dict(note)
                 item["items"] = json.loads(item.pop("items_json"))
                 item["events"] = events_by_note.get(item["id"], [])
+                item["reversals"] = reversals_by_note.get(item["id"], [])
+                item["active_start"] = active_starts_by_note.get(item["id"])
                 result_notes.append(item)
             return {**dict(trip), "notes": result_notes}
 
@@ -643,13 +777,82 @@ class Store:
             if not trip:
                 return None
             notes = db.execute("""SELECT id,number,recipient,recipient_id,address,city,seller,items_json,status FROM notes
-                WHERE trip_id=? ORDER BY recipient,address,number""", (trip["id"],)).fetchall()
+                WHERE trip_id=? AND status='pending' ORDER BY id""", (trip["id"],)).fetchall()
+            total_notes = db.execute("SELECT COUNT(*) FROM notes WHERE trip_id=?", (trip["id"],)).fetchone()[0]
+            starts = db.execute("""SELECT s.id,s.note_id,s.started_at,s.latitude,s.longitude,s.accuracy_m
+                FROM delivery_starts s LEFT JOIN delivery_events e ON e.start_id=s.id
+                JOIN notes n ON n.id=s.note_id
+                WHERE n.trip_id=? AND e.id IS NULL ORDER BY s.recorded_at DESC""", (trip["id"],)).fetchall()
+            starts_by_note = {}
+            for start in starts:
+                starts_by_note.setdefault(start["note_id"], dict(start))
             result_notes = []
-            for note in notes:
+            for note in sorted(notes, key=lambda row: (invoice_sort_key(row["number"]), row["id"])):
                 item = dict(note)
                 item["items"] = json.loads(item.pop("items_json"))
+                item["start"] = starts_by_note.get(item["id"])
                 result_notes.append(item)
-            return {**dict(trip), "notes": result_notes}
+            return {**dict(trip), "total_notes": total_notes, "notes": result_notes}
+
+    def start_unloading(self, driver_id: int, note_id: int, start_id: str, started_at: str,
+                        latitude=None, longitude=None, accuracy_m=None) -> dict:
+        if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", str(start_id)):
+            raise BusinessError("Identificador do início inválido")
+        started = client_timestamp(started_at, "Horário de início")
+        lat, lng, accuracy = normalized_location(latitude, longitude, accuracy_m)
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute("SELECT * FROM delivery_starts WHERE id=?", (start_id,)).fetchone()
+            if existing:
+                if existing["driver_id"] != driver_id or existing["note_id"] != note_id:
+                    raise BusinessError("Identificador do início já utilizado")
+                return {"start_id": start_id, "started_at": existing["started_at"],
+                        "location_recorded": existing["latitude"] is not None, "duplicate": True}
+            active = db.execute("""SELECT s.* FROM delivery_starts s
+                LEFT JOIN delivery_events e ON e.start_id=s.id
+                WHERE s.note_id=? AND s.driver_id=? AND e.id IS NULL
+                ORDER BY s.recorded_at DESC LIMIT 1""", (note_id, driver_id)).fetchone()
+            if active:
+                return {"start_id": active["id"], "started_at": active["started_at"],
+                        "location_recorded": active["latitude"] is not None, "duplicate": True}
+            note = db.execute("""SELECT n.status,t.status AS trip_status FROM notes n
+                JOIN trips t ON t.id=n.trip_id WHERE n.id=? AND t.driver_id=?""",
+                (note_id, driver_id)).fetchone()
+            if not note or note["trip_status"] != "released" or note["status"] != "pending":
+                raise BusinessError("A entrega não está pendente nesta viagem")
+            db.execute("""INSERT INTO delivery_starts(id,note_id,driver_id,started_at,recorded_at,
+                latitude,longitude,accuracy_m) VALUES(?,?,?,?,?,?,?,?)""",
+                (start_id, note_id, driver_id, started.isoformat(), now(), lat, lng, accuracy))
+            self._audit(db, f"driver:{driver_id}", "unloading_started", "note", note_id,
+                        {"start_id": start_id, "location_recorded": lat is not None})
+            return {"start_id": start_id, "started_at": started.isoformat(),
+                    "location_recorded": lat is not None, "duplicate": False}
+
+    def reopen_note(self, note_id: int, reason: str, *, actor: str) -> dict:
+        reason = str(reason or "").strip()
+        if not 5 <= len(reason) <= 500:
+            raise BusinessError("Informe o motivo do estorno com 5 a 500 caracteres")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            note = db.execute("""SELECT n.status,t.id AS trip_id,t.status AS trip_status,t.vehicle_id
+                FROM notes n JOIN trips t ON t.id=n.trip_id WHERE n.id=?""", (note_id,)).fetchone()
+            if not note:
+                raise BusinessError("Nota não encontrada")
+            if note["status"] == "pending":
+                raise BusinessError("A nota já está pendente")
+            if note["trip_status"] == "closed":
+                other = db.execute("""SELECT 1 FROM trips WHERE vehicle_id=? AND status='released'
+                    AND id<>?""", (note["vehicle_id"], note["trip_id"])).fetchone()
+                if other:
+                    raise BusinessError("Existe outra viagem ativa para este veículo")
+                db.execute("UPDATE trips SET status='released',closed_at=NULL WHERE id=?", (note["trip_id"],))
+                self._audit(db, actor, "reopened", "trip", note["trip_id"], {"reason": reason})
+            elif note["trip_status"] != "released":
+                raise BusinessError("Somente viagens liberadas ou encerradas podem receber estorno")
+            db.execute("UPDATE notes SET status='pending' WHERE id=?", (note_id,))
+            self._audit(db, actor, "delivery_reverted", "note", note_id,
+                        {"from": note["status"], "to": "pending", "reason": reason})
+            return {"note_id": note_id, "trip_id": note["trip_id"], "status": "pending"}
 
     def evidence_access(self, event_id: str) -> dict | None:
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
@@ -663,19 +866,22 @@ class Store:
 
     def record_delivery(self, driver_id: int, note_id: int, event_id: str, status: str, reason: str,
                         photo_base64: str | None = None, arrival_time: str = "", affected_item: str = "",
-                        seller_name: str = "") -> dict:
-        if status not in ("delivered", "partial", "refused", "occurrence"):
+                        seller_name: str = "", *, start_id: str = "", completed_at: str = "",
+                        occurrence_type: str = "", observation: str = "", expected_quantity: str = "",
+                        received_quantity: str = "") -> dict:
+        if status not in DELIVERY_STATUSES:
             raise BusinessError("Situação inválida")
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
             raise BusinessError("Identificador da operação inválido")
-        if len(reason) > 1000:
-            raise BusinessError("Observação muito longa")
+        reason = str(reason or "").strip()
+        observation = str(observation or "").strip()
+        occurrence_type = str(occurrence_type or "").strip()
+        if len(reason) > 1000 or len(observation) > 1000:
+            raise BusinessError("Motivo ou observação muito longos")
         if arrival_time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", arrival_time):
             raise BusinessError("Horário de chegada inválido")
         if len(affected_item) > 500 or len(seller_name) > 100:
             raise BusinessError("Detalhes da ocorrência muito longos")
-        if status != "delivered" and len(reason.strip()) < 3:
-            raise BusinessError("Informe o motivo da ocorrência")
         photo = None
         photo_type = None
         if photo_base64:
@@ -689,7 +895,7 @@ class Store:
             # reenvios concorrentes resultam em uma gravação e uma resposta duplicada.
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("""SELECT e.id,e.note_id,e.driver_id,e.status,e.reason,e.arrival_time,
-                e.affected_item,e.seller_name,e.created_at,n.number,n.recipient,n.city,n.seller,
+                e.affected_item,e.seller_name,e.observation,e.created_at,n.number,n.recipient,n.city,n.seller,
                 v.plate,d.name AS driver FROM delivery_events e
                 JOIN notes n ON n.id=e.note_id JOIN trips t ON t.id=n.trip_id
                 JOIN vehicles v ON v.id=t.vehicle_id JOIN drivers d ON d.id=e.driver_id
@@ -697,36 +903,112 @@ class Store:
             if existing:
                 if existing["driver_id"] != driver_id or existing["note_id"] != note_id:
                     raise BusinessError("Identificador de operação já utilizado")
+                existing_item = dict(existing)
                 message = occurrence_message(
-                    dict(existing), existing["status"], existing["reason"], existing["created_at"],
+                    existing_item, existing["status"], existing["reason"], existing["created_at"],
                     existing["arrival_time"], existing["affected_item"], existing["seller_name"],
+                    existing_item.get("observation", ""),
                 )
                 return {"event_id": event_id, "duplicate": True,
                         "status": existing["status"], "share_text": message}
             if status == "delivered" and photo is None:
                 raise BusinessError("Fotografia do canhoto é obrigatória para marcar entrega concluída")
-            note = db.execute("""SELECT n.id,n.number,n.recipient,n.city,n.seller,n.status,
+            note = db.execute("""SELECT n.id,n.number,n.recipient,n.city,n.seller,n.items_json,n.status,
                 t.status AS trip_status,v.plate,d.name AS driver FROM notes n
                 JOIN trips t ON t.id=n.trip_id JOIN vehicles v ON v.id=t.vehicle_id
                 JOIN drivers d ON d.id=t.driver_id WHERE n.id=? AND t.driver_id=?""",
                 (note_id, driver_id)).fetchone()
             if not note or note["trip_status"] != "released":
                 raise BusinessError("Nota não pertence à viagem ativa deste motorista")
+            if note["status"] != "pending":
+                raise BusinessError("Baixa já registrada; somente um administrador pode estornar")
+
+            start = None
+            if start_id:
+                if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", str(start_id)):
+                    raise BusinessError("Identificador do início inválido")
+                start = db.execute("""SELECT id,started_at FROM delivery_starts
+                    WHERE id=? AND note_id=? AND driver_id=?""", (start_id, note_id, driver_id)).fetchone()
+                if not start:
+                    raise BusinessError("Início do descarregamento não encontrado")
+                linked = db.execute("SELECT id FROM delivery_events WHERE start_id=?", (start_id,)).fetchone()
+                if linked:
+                    raise BusinessError("Este descarregamento já possui uma baixa")
+                start_moment = datetime.fromisoformat(start["started_at"].replace("Z", "+00:00"))
+                arrival_time = start_moment.astimezone(timezone(timedelta(hours=-3))).strftime("%H:%M")
+            elif not arrival_time:
+                raise BusinessError("Inicie o descarregamento antes de concluir a entrega")
+
+            completed = client_timestamp(completed_at, "Horário de conclusão") \
+                if completed_at else datetime.now(timezone.utc)
+            if start:
+                start_moment = datetime.fromisoformat(start["started_at"].replace("Z", "+00:00"))
+                duration_seconds = int((completed - start_moment).total_seconds())
+                if duration_seconds < -60 or duration_seconds > 7 * 24 * 3600:
+                    raise BusinessError("Intervalo de descarregamento inválido")
+                duration_seconds = max(0, duration_seconds)
+            else:
+                duration_seconds = None
+
+            affected_description = ""
+            if status == "refused":
+                if reason not in REFUSAL_REASONS:
+                    raise BusinessError("Selecione Pedido Duplicado ou Sem Pedido para a recusa")
+                occurrence_type = ""
+            elif status == "occurrence":
+                if occurrence_type not in OCCURRENCE_TYPES:
+                    raise BusinessError("Selecione o tipo da ocorrência")
+                if occurrence_type == "general":
+                    if len(reason) < 3:
+                        raise BusinessError("Descreva o motivo da ocorrência")
+                else:
+                    items = json.loads(note["items_json"] or "[]")
+                    item_index = re.fullmatch(r"__index_(\d+)", str(affected_item))
+                    if item_index:
+                        try:
+                            selected = items[int(item_index.group(1))]
+                        except IndexError:
+                            selected = None
+                    else:
+                        selected = next((item for item in items if str(item.get("codigo", "")) == str(affected_item)), None)
+                    if not selected:
+                        raise BusinessError("Selecione um item válido da NF-e")
+                    xml_quantity = normalized_quantity(selected.get("quantidade", ""), "Quantidade da NF-e")
+                    informed_expected = normalized_quantity(expected_quantity, "Quantidade da NF-e")
+                    received = normalized_quantity(received_quantity, "Quantidade física")
+                    if informed_expected != xml_quantity:
+                        raise BusinessError("A quantidade total não corresponde ao XML")
+                    if received >= xml_quantity:
+                        raise BusinessError("Na falta parcial, a quantidade física deve ser menor que a quantidade da NF-e")
+                    unit = str(selected.get("unidade", "")).strip()
+                    description = str(selected.get("descricao", "Produto")).strip()
+                    affected_description = (f"{description} • Previsto: {expected_quantity} {unit} • "
+                                            f"Recebido: {received_quantity} {unit}").strip()
+                    reason = "Falta parcial"
+            else:
+                occurrence_type = ""
+                reason = ""
+
             created_at = now()
             db.execute("""INSERT INTO delivery_events(id,note_id,driver_id,status,reason,arrival_time,
-                affected_item,seller_name,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (event_id, note_id, driver_id, status, reason.strip(), arrival_time,
-                 affected_item.strip(), seller_name.strip(), created_at))
+                affected_item,seller_name,start_id,completed_at,occurrence_type,observation,
+                expected_quantity,received_quantity,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (event_id, note_id, driver_id, status, reason, arrival_time,
+                 affected_description, seller_name.strip(), start_id or None, completed.isoformat(),
+                 occurrence_type, observation, str(expected_quantity or ""),
+                 str(received_quantity or ""), created_at))
             if photo is not None:
                 db.execute("""INSERT INTO evidence(note_id,event_id,mime,sha256,content,created_at)
                     VALUES(?,?,?,?,?,?)""", (note_id, event_id, photo_type, hashlib.sha256(photo).hexdigest(), photo, now()))
             db.execute("UPDATE notes SET status=? WHERE id=?", (status, note_id))
             self._audit(db, f"driver:{driver_id}", "status_changed", "note", note_id,
-                        {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id,
-                         "arrival_time": arrival_time, "affected_item": affected_item.strip()})
+                        {"from": note["status"], "to": status, "reason": reason, "event_id": event_id,
+                         "start_id": start_id or None, "occurrence_type": occurrence_type})
             message = occurrence_message(dict(note), status, reason, created_at, arrival_time,
-                                         affected_item, seller_name)
-            return {"event_id": event_id, "duplicate": False, "status": status, "share_text": message}
+                                         affected_description, seller_name, observation)
+            return {"event_id": event_id, "duplicate": False, "status": status,
+                    "duration_seconds": duration_seconds, "share_text": message}
 
     def close_driver_trip(self, driver_id: int, trip_id: int) -> dict:
         with self.connection() as db:

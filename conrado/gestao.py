@@ -19,18 +19,18 @@ from conrado.config import ConfigError, load_env_file, server_settings
 from conrado.importer import NFeError, parse_nfe
 from conrado.maintenance import MaintenanceWorker, retention_settings
 from conrado.painel import DEFAULT_REGEX
-from conrado.store import BusinessError, Store
+from conrado.store import BusinessError, ServiceUnavailable, Store
 from conrado.version import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_BODY = 15_000_000
 LOGIN_WINDOW_SECONDS = 300
 STATIC_ROUTES = {
-    "/assets/app.css": ("web/assets/app.css", "text/css; charset=utf-8", "public, max-age=3600"),
-    "/assets/gestao.js": ("web/assets/gestao.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
-    "/assets/motorista.js": ("web/assets/motorista.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
-    "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
-    "/assets/offline-queue.js": ("web/assets/offline-queue.js", "text/javascript; charset=utf-8", "public, max-age=3600"),
+    "/assets/app.css": ("web/assets/app.css", "text/css; charset=utf-8", "no-cache"),
+    "/assets/gestao.js": ("web/assets/gestao.js", "text/javascript; charset=utf-8", "no-cache"),
+    "/assets/motorista.js": ("web/assets/motorista.js", "text/javascript; charset=utf-8", "no-cache"),
+    "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "no-cache"),
+    "/assets/offline-queue.js": ("web/assets/offline-queue.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/icon.svg": ("web/assets/icon.svg", "image/svg+xml", "public, max-age=86400"),
     "/assets/apple-touch-icon.png": ("web/assets/apple-touch-icon.png", "image/png", "public, max-age=86400"),
     "/assets/icon-192.png": ("web/assets/icon-192.png", "image/png", "public, max-age=86400"),
@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def setup(self):
         super().setup()
-        self.connection.settimeout(30)
+        self.connection.settimeout(75)
         self.request_id = secrets.token_hex(8)
         self.started_at = time.monotonic()
 
@@ -116,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
             ("Cross-Origin-Opener-Policy", "same-origin"),
             ("Cross-Origin-Resource-Policy", "same-origin"),
             ("Strict-Transport-Security", "max-age=31536000"),
-            ("Permissions-Policy", "camera=(self), geolocation=(), microphone=()"),
+            ("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()"),
             ("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; "
              "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
         ))
@@ -246,8 +246,13 @@ class Handler(BaseHTTPRequestHandler):
                 ("created_at", "Data/hora UTC"), ("status", "Situação"),
                 ("invoice", "NF-e"), ("recipient", "Cliente"), ("city", "Cidade"),
                 ("trip", "Viagem"), ("plate", "Placa"), ("driver", "Motorista"),
-                ("arrival_time", "Chegada"), ("reason", "Motivo"),
-                ("affected_item", "Item afetado"), ("seller_name", "Vendedor"),
+                ("started_at", "Início do descarregamento"), ("completed_at", "Conclusão"),
+                ("duration_seconds", "Duração em segundos"), ("arrival_time", "Chegada"),
+                ("reason", "Motivo"), ("occurrence_type", "Tipo de ocorrência"),
+                ("affected_item", "Item afetado"), ("expected_quantity", "Quantidade NF-e"),
+                ("received_quantity", "Quantidade física"), ("observation", "Observação"),
+                ("latitude", "Latitude"), ("longitude", "Longitude"),
+                ("accuracy_m", "Precisão em metros"), ("seller_name", "Vendedor"),
                 ("has_evidence", "Possui evidência"),
             ))
         elif self.path == "/api/admin/users":
@@ -344,15 +349,32 @@ class Handler(BaseHTTPRequestHandler):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 self.server.db.revoke_driver_session(token)
                 result = {"logged_out": True}
+            elif (match := re.fullmatch(r"/api/driver/notes/(\d+)/start", self.path)):
+                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                driver_id = self.server.db.driver_by_token(token)
+                if not driver_id:
+                    self._json(401, {"erro": "Sessão do motorista inválida"})
+                    return
+                result = self.server.db.start_unloading(
+                    driver_id, int(match.group(1)), body["start_id"], body["started_at"],
+                    body.get("latitude"), body.get("longitude"), body.get("accuracy_m"),
+                )
             elif (match := re.fullmatch(r"/api/driver/notes/(\d+)/status", self.path)):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 driver_id = self.server.db.driver_by_token(token)
                 if not driver_id:
                     self._json(401, {"erro": "Sessão do motorista inválida"})
                     return
-                result = self.server.db.record_delivery(driver_id, int(match.group(1)),
-                    body["event_id"], body["status"], body.get("reason", ""), body.get("photo_base64"),
-                    body.get("arrival_time", ""), body.get("affected_item", ""), body.get("seller_name", ""))
+                result = self.server.db.record_delivery(
+                    driver_id, int(match.group(1)), body["event_id"], body["status"],
+                    body.get("reason", ""), body.get("photo_base64"), body.get("arrival_time", ""),
+                    body.get("affected_item", ""), body.get("seller_name", ""),
+                    start_id=body.get("start_id", ""), completed_at=body.get("completed_at", ""),
+                    occurrence_type=body.get("occurrence_type", ""),
+                    observation=body.get("observation", ""),
+                    expected_quantity=body.get("expected_quantity", ""),
+                    received_quantity=body.get("received_quantity", ""),
+                )
             elif (match := re.fullmatch(r"/api/driver/trips/(\d+)/close", self.path)):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 driver_id = self.server.db.driver_by_token(token)
@@ -387,6 +409,13 @@ class Handler(BaseHTTPRequestHandler):
                     int(match.group(1)), body["password"], actor=admin_context["actor"],
                 )
                 result = {"updated": True}
+            elif (match := re.fullmatch(r"/api/notes/(\d+)/reopen", self.path)):
+                if admin_context["role"] != "admin":
+                    self._json(403, {"erro": "Apenas administradores podem estornar baixas"})
+                    return
+                result = self.server.db.reopen_note(
+                    int(match.group(1)), body.get("reason", ""), actor=admin_context["actor"],
+                )
             elif self.path == "/api/drivers":
                 if admin_context["role"] not in ("admin", "operator"):
                     self._json(403, {"erro": "Perfil somente leitura"})
@@ -431,6 +460,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"erro": "Recurso não encontrado"})
                 return
             self._json(200, result)
+        except ServiceUnavailable as exc:
+            self._json(503, {"erro": str(exc)}, {"Retry-After": "30"})
         except (BusinessError, NFeError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             self._json(400, {"erro": str(exc)})
 
@@ -439,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         status = str(args[1]) if len(args) > 1 else "unknown"
         path = self.path.split("?", 1)[0]
-        path = re.sub(r"/api/(driver/notes|driver/trips|drivers|trips|admin/users)/[^/]+", r"/api/\1/{id}", path)
+        path = re.sub(r"/api/(driver/notes|driver/trips|drivers|trips|notes|admin/users)/[^/]+", r"/api/\1/{id}", path)
         path = re.sub(r"/api/evidence/[^/]+/access", "/api/evidence/{event}/access", path)
         print(json.dumps({
             "level": "info", "event": "http_request", "request_id": self.request_id,

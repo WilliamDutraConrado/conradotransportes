@@ -2,7 +2,7 @@
 
 Projeto-piloto de gestão de entregas para a Conrado Transportes. O DutraLog atende a operação do motorista; o DutraTracking concentra a visão administrativa. Desenvolvimento iniciado em novembro de 2026.
 
-Versão candidata atual: **0.9.0-rc.1**.
+Versão candidata atual: **0.10.0-rc.1**.
 
 Escopo: importação manual de XML de NF-e, viagens vinculadas a placas, controle individual de notas e canhotos, ocorrências, painel administrativo e PWA instalável com fila offline.
 
@@ -49,8 +49,9 @@ O comando `conrado.smoke` usa somente dados fictícios dentro de uma transação
 reverte tudo ao final e confirma em uma segunda conexão que nada permaneceu.
 O comando `conrado.e2e` inicia a API local com PostgreSQL, autentica um
 administrador fictício, confirma sua atribuição nos eventos, importa uma NF-e
-fictícia, registra uma ocorrência, envia um PNG sintético ao bucket privado,
-valida a URL temporária, encerra a viagem e limpa os registros pelos IDs exatos.
+fictícia, inicia o descarregamento, registra uma entrega com PNG sintético no
+bucket privado, confirma a ocultação da NF-e, valida a URL temporária, encerra a
+viagem e limpa os registros pelos IDs exatos.
 O XML não é enviado ao Storage e a imagem de teste é removida pela API oficial.
 O comando `conrado.ops_audit` é somente leitura e informa apenas totais: confere
 eventos, evidências obrigatórias e a existência dos objetos privados, sem exibir
@@ -71,13 +72,15 @@ python3 -m conrado.gestao
 
 Abra `http://127.0.0.1:8766` no **mesmo computador**. Insira a chave de transição ou entre com uma conta administrativa individual, cadastre motoristas e veículos, crie rascunhos de viagens, importe os XMLs correspondentes e libere a viagem após conferência. Dados são salvos em `conrado_local.sqlite` local (ignorado pelo Git). **Não use esta versão em produção:** ainda faltam o ensaio presencial de restauração, monitoramento contínuo e homologação operacional.
 
-## Área móvel experimental
+## Área móvel do piloto
 
-No mesmo servidor de gestão, acesse `http://127.0.0.1:8766/motorista`. O administrador pode definir senhas individuais no cadastro; o motorista entra com placa e senha e visualiza somente a viagem liberada para ele. É possível registrar ocorrências com motivo e histórico; para baixar uma nota como **entregue**, a fotografia é obrigatória. A PWA mantém a rota e uma fila cifrada no aparelho, sincroniza posteriormente e reaproveita identificadores idempotentes. Ela não é um APK nativo; a instalação no celular exige o domínio HTTPS da homologação.
+No mesmo servidor de gestão, acesse `http://127.0.0.1:8766/motorista`. O administrador pode definir senhas individuais no cadastro; o motorista entra com placa e senha e visualiza somente a viagem liberada para ele. As entregas pendentes aparecem em ordem numérica crescente de NF-e, com atalhos para Waze e Google Maps. Ao tocar em **Iniciar descarregamento**, o app registra o horário e tenta uma coleta pontual e opcional da localização. Para baixar uma nota como **Entregue**, a fotografia é obrigatória. A PWA otimiza a foto, mantém rota e operações em fila cifrada no aparelho, sincroniza posteriormente e reaproveita identificadores idempotentes. Ela não é um APK nativo; a instalação no celular exige o domínio HTTPS da homologação.
 
-Nas ocorrências, cliente, NF, cidade, vendedor (quando informado), produtos, motorista e placa são aproveitados do XML e dos cadastros. O horário é sugerido pelo celular e pode ser corrigido. O motorista seleciona o produto, informa a quantidade afetada e descreve o motivo. O aplicativo prepara o texto no padrão da Conrado para revisão, cópia ou compartilhamento manual; nenhum envio ao WhatsApp é automático.
+O campo de situação oferece apenas **Entregue**, **Recusa** e **Ocorrência geral**. Recusa aceita somente **Pedido Duplicado** ou **Sem Pedido**. Em falta parcial, dentro de ocorrência, o motorista escolhe um item real do XML, vê a quantidade total e informa a quantidade física recebida. Cliente, NF, cidade, vendedor, produtos, motorista e placa são aproveitados dos dados já validados. O aplicativo prepara o texto no padrão da Conrado para revisão, cópia ou compartilhamento manual; nenhum envio ao WhatsApp é automático.
 
-O painel administrativo também consolida a produtividade por motorista: viagens totais, em rota e encerradas; NF-e entregues, pendentes e com ocorrência; e percentual de entrega concluída. Entregas parciais, recusas e ocorrências não são contabilizadas como entregas concluídas.
+Depois de uma baixa confirmada ou preservada na fila offline, a NF-e sai da rota ativa. Somente um Administrador pode estorná-la, com motivo obrigatório; a entrega volta para o motorista sem apagar o evento anterior, a fotografia, os horários ou a trilha de auditoria.
+
+O painel administrativo também consolida a produtividade por motorista: viagens totais, em rota e encerradas; NF-e entregues, pendentes e com ocorrência; e percentual de entrega concluída. Recusas e ocorrências não são contabilizadas como entregas concluídas; registros parciais antigos permanecem identificados apenas no histórico.
 
 O acesso do motorista bloqueia temporariamente novas tentativas após cinco senhas inválidas em cinco minutos. O limitador persiste entre reinícios e guarda somente hashes de IP e placa. A área móvel possui saída explícita, que revoga a sessão no servidor. As respostas incluem proteção contra enquadramento, política de referência restrita e permissões mínimas de câmera. A gestão possui login individual, sessão de oito horas, logout e autorização por perfil. Esses controles ajudam o piloto, mas ainda não substituem HTTPS na borda, monitoramento e homologação presencial.
 

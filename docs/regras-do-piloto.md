@@ -8,10 +8,12 @@ O administrador importa manualmente somente os XMLs da carga já conferida e doc
 
 - Uma parada pode reunir várias NF-e do mesmo destinatário e endereço.
 - Cada NF-e possui situação própria e, se entregue, foto própria do canhoto assinado.
-- Situações iniciais: pendente, entregue, parcial, recusada e ocorrência.
+- A tela do motorista oferece somente Entregue, Recusa e Ocorrência geral. Falta parcial é um subtipo de ocorrência; “parcial” separado permanece apenas em histórico legado.
+- Recusa aceita somente Pedido Duplicado ou Sem Pedido.
 - Para concluir uma entrega, exige-se fotografia legível; exceções requerem motivo registrado.
 - O encerramento da viagem é permitido quando todas as notas tiverem situação justificada. Ocorrências podem continuar abertas para tratativa administrativa após o encerramento.
-- O encerramento remove a viagem da tela operacional, mas preserva o histórico para motorista e gestor conforme as permissões.
+- Cada baixa remove a NF-e da rota ativa. Estorno exclusivo do Administrador devolve a NF-e ao motorista e preserva o histórico anterior.
+- O encerramento remove a viagem da tela operacional, mas preserva o histórico para o gestor conforme as permissões.
 
 ## Ocorrências
 
@@ -19,7 +21,7 @@ O administrador importa manualmente somente os XMLs da carga já conferida e doc
 - Registrar motivo, quantidade afetada quando aplicável, observação e evidências.
 - O aplicativo poderá preparar texto com nota, cliente, placa e motivo para compartilhar **manualmente** no grupo interno do WhatsApp. Não enviar automaticamente à indústria.
 - O texto também aproveita cidade, vendedor e produtos quando esses dados existirem no XML. Como vendedor e descrição de embalagem podem estar em campos livres, o motorista deve revisar antes do envio.
-- Horário de chegada e quantidade afetada são confirmados pelo motorista; o sistema sugere o horário atual e oferece os itens da NF-e para seleção.
+- O toque em Iniciar descarregamento registra o horário do aparelho e, quando autorizado, uma localização pontual. Em falta parcial, o sistema oferece itens da NF-e, mantém a quantidade do XML somente leitura e exige a quantidade física recebida.
 - Alterações ficam registradas com autor, momento e valores anteriores/novos; depois do encerramento, apenas administração altera ou resolve tratativas.
 
 ## Segurança e operação offline
@@ -28,7 +30,7 @@ O administrador importa manualmente somente os XMLs da carga já conferida e doc
 - Banco separa dados de cada transportadora; regras de autorização devem valer também no servidor.
 - App mantém fila offline e sincroniza operações com identificadores únicos para evitar baixas duplicadas.
 - Fotos e NF-e são informações sensíveis da operação: acesso restrito, criptografia, retenção e backups são necessários antes do piloto real.
-- Como os celulares são pessoais, rastreamento de localização exige informação clara, autorização pertinente e definição dos horários de coleta.
+- Como os celulares são pessoais, a localização é pontual, opcional e vinculada ao início do atendimento; exige informação clara, autorização pertinente, retenção definida e proibição de uso para rastreamento contínuo.
 
 ## Fora do piloto
 

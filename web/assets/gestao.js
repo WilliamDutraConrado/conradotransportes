@@ -59,8 +59,8 @@ function roleLabel(role) {
 function statusLabel(status) {
   return {
     draft: "Rascunho", released: "Em rota", closed: "Encerrada",
-    pending: "Pendente", delivered: "Entregue", occurrence: "Ocorrência",
-    partial: "Parcial", refused: "Recusada"
+    pending: "Pendente", delivered: "Entregue", occurrence: "Ocorrência geral",
+    partial: "Falta parcial (registro anterior)", refused: "Recusa"
   }[status] || status;
 }
 
@@ -173,21 +173,50 @@ function renderTrips(trips) {
   }).join("")}</tbody></table></div>`;
 }
 
-function eventHistory(events) {
-  if (!events.length) return '<span class="hint">Sem movimentação</span>';
-  const movementLabel = events.length === 1 ? "1 movimentação" : `${events.length} movimentações`;
-  return `<details><summary>${movementLabel}</summary><ol class="history">${events.map(event => {
-    const date = new Date(event.created_at);
-    const when = Number.isNaN(date.getTime()) ? event.created_at : date.toLocaleString("pt-BR");
-    return `<li><strong>${safe(statusLabel(event.status))}</strong>${event.has_evidence ? ` <button class="ghost" data-action="evidence" data-event-id="${safe(event.id)}">Ver foto</button>` : ""}<small>${safe(event.driver)} • ${safe(when)}${event.arrival_time ? ` • chegada ${safe(event.arrival_time)}` : ""}</small>${event.reason ? `<div>${safe(event.reason)}</div>` : ""}${event.affected_item ? `<div><b>Item:</b> ${safe(event.affected_item)}</div>` : ""}${event.seller_name ? `<div><b>Vendedor:</b> ${safe(event.seller_name)}</div>` : ""}</li>`;
+function durationLabel(seconds) {
+  if (seconds == null) return "";
+  const minutes = Math.max(0, Math.round(Number(seconds) / 60));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}min`;
+}
+
+function activeService(start) {
+  if (!start) return "";
+  const started = new Date(start.started_at);
+  if (Number.isNaN(started.getTime())) return '<div class="warning compact-status">Descarregamento em andamento</div>';
+  const seconds = Math.max(0, (Date.now() - started.getTime()) / 1000);
+  return `<div class="warning compact-status"><strong>Em atendimento</strong><small>desde ${safe(started.toLocaleString("pt-BR"))} • ${safe(durationLabel(seconds))}</small></div>`;
+}
+
+function eventHistory(events, reversals = []) {
+  const movements = [
+    ...events.map(event => ({ kind: "event", at: event.completed_at || event.created_at, value: event })),
+    ...reversals.map(reversal => ({ kind: "reversal", at: reversal.happened_at, value: reversal }))
+  ].sort((left, right) => new Date(left.at) - new Date(right.at));
+  if (!movements.length) return '<span class="hint">Sem movimentação</span>';
+  const movementLabel = movements.length === 1 ? "1 movimentação" : `${movements.length} movimentações`;
+  return `<details><summary>${movementLabel}</summary><ol class="history">${movements.map(movement => {
+    const whenDate = new Date(movement.at);
+    const when = Number.isNaN(whenDate.getTime()) ? movement.at : whenDate.toLocaleString("pt-BR");
+    if (movement.kind === "reversal") {
+      const payload = movement.value.payload || {};
+      return `<li class="history-reversal"><strong>Baixa estornada</strong><small>${safe(movement.value.actor)} • ${safe(when)}</small><div>${safe(payload.reason || "Motivo não informado")}</div></li>`;
+    }
+    const event = movement.value;
+    const mapLink = event.latitude != null && event.longitude != null
+      ? ` <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${event.latitude},${event.longitude}`)}" target="_blank" rel="noopener noreferrer">Ver localização</a>` : "";
+    const timing = event.started_at
+      ? `<div><b>Atendimento:</b> ${safe(new Date(event.started_at).toLocaleString("pt-BR"))}${event.duration_seconds != null ? ` • ${safe(durationLabel(event.duration_seconds))}` : ""}${mapLink}</div>` : "";
+    return `<li><strong>${safe(statusLabel(event.status))}</strong>${event.has_evidence ? ` <button class="ghost" data-action="evidence" data-event-id="${safe(event.id)}">Ver foto</button>` : ""}<small>${safe(event.driver)} • ${safe(when)}${event.arrival_time ? ` • chegada ${safe(event.arrival_time)}` : ""}</small>${timing}${event.reason ? `<div><b>Motivo:</b> ${safe(event.reason)}</div>` : ""}${event.affected_item ? `<div><b>Item:</b> ${safe(event.affected_item)}</div>` : ""}${event.observation ? `<div><b>Observação:</b> ${safe(event.observation)}</div>` : ""}${event.seller_name ? `<div><b>Vendedor:</b> ${safe(event.seller_name)}</div>` : ""}</li>`;
   }).join("")}</ol></details>`;
 }
 
 async function showTrip(id) {
   const trip = await api(`/api/trips/${id}/detail`);
   $("detailTitle").textContent = `${trip.label} • ${trip.plate} • ${trip.driver}`;
+  $("detail").dataset.tripId = id;
   $("detail").innerHTML = trip.notes.length ? `<div class="table-wrap"><table><thead><tr><th>NF-e</th><th>Destinatário</th><th>Endereço</th><th>Volumes</th><th>Peso (kg)</th><th>Situação</th><th>Histórico</th></tr></thead><tbody>${trip.notes.map(note =>
-    `<tr><td>${safe(note.number)}</td><td>${safe(note.recipient)}</td><td>${safe(note.address)}</td><td>${note.volumes}</td><td>${Number(note.gross_weight).toLocaleString("pt-BR")}</td><td>${safe(statusLabel(note.status))}</td><td>${eventHistory(note.events)}</td></tr>`
+    `<tr><td><strong>${safe(note.number)}</strong></td><td>${safe(note.recipient)}</td><td>${safe(note.address)}</td><td>${note.volumes}</td><td>${Number(note.gross_weight).toLocaleString("pt-BR")}</td><td><span class="tag">${safe(statusLabel(note.status))}</span>${activeService(note.active_start)}${currentUser.role === "admin" && note.status !== "pending" ? `<button class="ghost compact-action" data-action="reopen-note" data-note-id="${note.id}">Estornar baixa</button>` : ""}</td><td>${eventHistory(note.events, note.reversals)}</td></tr>`
   ).join("")}</tbody></table></div>` : '<div class="empty">Nenhuma nota fiscal importada.</div>';
   $("detailBox").hidden = false;
   $("detailBox").scrollIntoView({ behavior: "smooth" });
@@ -366,9 +395,20 @@ $("trips").addEventListener("click", async event => {
 });
 
 $("detail").addEventListener("click", async event => {
-  const button = event.target.closest('button[data-action="evidence"]');
+  const button = event.target.closest("button[data-action]");
   if (!button) return;
-  try { await viewEvidence(button.dataset.eventId); } catch (error) { feedback(error.message, true); }
+  try {
+    if (button.dataset.action === "evidence") await viewEvidence(button.dataset.eventId);
+    if (button.dataset.action === "reopen-note") {
+      const reason = prompt("Informe o motivo do estorno. O histórico anterior será preservado:");
+      if (reason === null) return;
+      setBusy(button, true);
+      await api(`/api/notes/${button.dataset.noteId}/reopen`, { reason });
+      await showTrip(Number($("detail").dataset.tripId));
+      await refresh();
+      feedback("Baixa estornada. A NF-e voltou para a lista do motorista e o histórico foi preservado.");
+    }
+  } catch (error) { feedback(error.message, true); }
 });
 
 $("adminUsers").addEventListener("click", async event => {

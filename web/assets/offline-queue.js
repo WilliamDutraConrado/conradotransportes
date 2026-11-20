@@ -35,7 +35,9 @@
       if (!record || !record.id || unique.has(record.id)) continue;
       unique.set(record.id, record);
     }
+    const priority = record => record.kind === "start_delivery" ? 0 : record.kind === "close_trip" ? 2 : 1;
     return [...unique.values()].sort((a, b) =>
+      priority(a) - priority(b) ||
       String(a.created_at || "").localeCompare(String(b.created_at || ""))
     );
   }

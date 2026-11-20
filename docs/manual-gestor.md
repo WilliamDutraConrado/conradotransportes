@@ -17,7 +17,9 @@ XML malformado, entidade externa, duplicidade ou placa divergente bloqueia o lot
 
 ## Acompanhar
 
-Use o resumo, produtividade e **Ver notas**. Entrega, parcial, recusa e ocorrência permanecem separadas. Fotografias usam acesso temporário e não devem ser copiadas para pastas públicas.
+Use o resumo, produtividade e **Ver notas**. Entrega, recusa e ocorrência permanecem separadas; “parcial” aparece apenas em registros antigos. O histórico mostra início, fim, duração, localização pontual, observações e evidências. Fotografias usam acesso temporário e não devem ser copiadas para pastas públicas.
+
+Para corrigir uma baixa, abra **Ver notas → Estornar baixa** e informe um motivo objetivo. Essa ação é exclusiva do Administrador: a NF-e retorna à rota do motorista, mas o evento anterior, a foto e o estorno permanecem no histórico. Não use estorno para apagar evidências.
 
 ## Relatórios e diagnóstico
 

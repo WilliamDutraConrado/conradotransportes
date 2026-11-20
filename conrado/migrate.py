@@ -23,6 +23,10 @@ MIGRATIONS = {
         ROOT / "infra" / "supabase" / "006_retention_indexes.sql",
         ("audit", "evidence", "delivery_events", "admin_sessions", "driver_sessions"),
     ),
+    "007_delivery_workflow": (
+        ROOT / "infra" / "supabase" / "007_delivery_workflow.sql",
+        ("delivery_starts", "delivery_events"),
+    ),
 }
 
 

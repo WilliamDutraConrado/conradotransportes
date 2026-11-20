@@ -2,6 +2,40 @@
 
 Todas as alterações relevantes deste projeto são registradas aqui.
 
+## 0.10.0-rc.1 — 2026-11-20
+
+### Operação do motorista
+
+- Rota redesenhada em cartões recolhíveis, com ordem numérica crescente de NF-e e destaque da próxima entrega.
+- Atalhos oficiais por endereço para Waze e Google Maps em cada NF-e.
+- Início explícito do descarregamento com horário do aparelho, cronômetro e localização pontual opcional.
+- Tela ativa exibe somente pendências; baixas confirmadas ou preservadas offline saem da rota.
+- Situações limitadas a Entregue, Recusa e Ocorrência geral; recusa restrita a Pedido Duplicado ou Sem Pedido.
+- Falta parcial tratada dentro da ocorrência, com item validado contra o XML e comparação entre quantidade total e física.
+
+### Fotos e confiabilidade
+
+- Captura aceita imagens da câmera, corrige a orientação quando suportada, redimensiona e comprime para JPEG antes do envio.
+- Limite explícito para foto original, tempo maior de upload e mensagens distintas entre preparação, envio e confirmação.
+- Foto obrigatória de Entregue validada no navegador e novamente no servidor; upload privado tem compensação em caso de falha do banco.
+- Resposta perdida após upload é recuperada somente após baixar o objeto privado e confirmar seu hash exato.
+- Fila offline cifrada preserva foto e baixa; uma rejeição do servidor devolve a NF-e à rota para correção.
+- O app solicita armazenamento persistente quando o navegador oferece o recurso, reduzindo risco de limpeza automática da fila.
+- Arquivos funcionais usam revalidação HTTP para evitar que uma correção urgente fique presa no cache antigo.
+
+### Gestão, histórico e segurança
+
+- Estorno exclusivo de Administrador, com motivo obrigatório, reabertura segura da viagem e preservação dos eventos/evidências anteriores.
+- Histórico registra início, fim, duração, localização, observação, quantidades e estornos; atendimentos em andamento aparecem na gestão.
+- Concorrência serializada por NF-e para impedir dois inícios ou duas baixas simultâneas; uma baixa concluída não pode ser sobrescrita pelo motorista.
+- Migração `007_delivery_workflow` aditiva, tabela de inícios privada com RLS e geolocalização liberada apenas para a própria origem HTTPS.
+
+### Validação
+
+- 132 testes Python e 12 testes JavaScript aprovados.
+- Preflight do Supabase, smoke das 13 tabelas, auditoria de dependências e E2E real com foto sintética aprovados.
+- E2E confirmou início, baixa, Storage privado, ocultação, encerramento e limpeza integral dos dados fictícios.
+
 ## 0.9.0-rc.2 — 2026-11-19
 
 ### Correções urgentes no DutraLog

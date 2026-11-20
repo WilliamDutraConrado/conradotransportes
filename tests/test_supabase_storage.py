@@ -1,5 +1,6 @@
 import json
 import unittest
+import urllib.error
 
 from conrado.supabase_storage import StorageError, SupabaseStorage, detect_image
 
@@ -43,6 +44,42 @@ class SupabaseStorageTest(unittest.TestCase):
         request = self.requests[0]
         self.assertEqual(request.get_header("Content-type"), "image/jpeg")
         self.assertNotIn("test-service-key", request.full_url)
+
+    def test_upload_recupera_resposta_perdida_validando_hash_privado(self):
+        image = b"\xff\xd8\xff" + b"network-recovery" * 12 + b"\xff\xd9"
+        requests = []
+
+        def uncertain_open(req, timeout):
+            requests.append(req)
+            if req.get_method() == "POST":
+                raise urllib.error.URLError("resposta perdida")
+            response = Response({})
+            response.body = image
+            return response
+
+        storage = SupabaseStorage("https://example.supabase.co", "test-service-key", opener=uncertain_open)
+
+        result = storage.upload(3, 9, "evento-rede-123456", image)
+
+        self.assertEqual(result.sha256, __import__("hashlib").sha256(image).hexdigest())
+        self.assertEqual([request.get_method() for request in requests], ["POST", "GET"])
+        self.assertIn("/object/authenticated/canhotos/", requests[1].full_url)
+
+    def test_upload_nao_recupera_objeto_com_hash_divergente(self):
+        image = b"\xff\xd8\xff" + b"expected-content" * 12 + b"\xff\xd9"
+        other = b"\xff\xd8\xff" + b"different-content" * 12 + b"\xff\xd9"
+
+        def mismatched_open(req, timeout):
+            if req.get_method() == "POST":
+                raise urllib.error.URLError("resposta perdida")
+            response = Response({})
+            response.body = other
+            return response
+
+        storage = SupabaseStorage("https://example.supabase.co", "test-service-key", opener=mismatched_open)
+
+        with self.assertRaises(StorageError):
+            storage.upload(3, 9, "evento-rede-654321", image)
 
     def test_rejeita_mime_falso_e_caminho_arbitrario(self):
         with self.assertRaises(StorageError):

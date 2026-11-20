@@ -17,7 +17,8 @@ from conrado.config import ConfigError, load_env_file, supabase_server_key
 
 TABLES = (
     "drivers", "vehicles", "trips", "notes", "driver_auth", "driver_sessions",
-    "admin_users", "admin_sessions", "login_limits", "delivery_events", "evidence", "audit",
+    "admin_users", "admin_sessions", "login_limits", "delivery_starts", "delivery_events",
+    "evidence", "audit",
 )
 
 

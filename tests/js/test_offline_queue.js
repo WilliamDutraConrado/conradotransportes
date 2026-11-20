@@ -16,6 +16,16 @@ test("deduplica pelo mesmo event_id e preserva ordem", () => {
   assert.deepEqual(records.map(record => record.id), ["event-1", "event-2"]);
 });
 
+test("início precede a baixa da mesma NF mesmo se o relógio do aparelho retroceder", () => {
+  const records = sortAndDedupe([
+    { id: "baixa-1", kind: "delivery", note_id: 7, created_at: "2026-11-20T10:00:00Z" },
+    { id: "inicio-1", kind: "start_delivery", note_id: 7, created_at: "2026-11-20T10:05:00Z" },
+    { id: "fechar-1", kind: "close_trip", created_at: "2026-11-20T09:00:00Z" }
+  ]);
+
+  assert.deepEqual(records.map(record => record.id), ["inicio-1", "baixa-1", "fechar-1"]);
+});
+
 test("falha de rede interrompe lote sem perder operações posteriores", async () => {
   const records = [{ id: "event-1" }, { id: "event-2" }];
   const error = new Error("offline");
@@ -79,29 +89,44 @@ test("sessão expirada preserva toda a fila para novo login", async () => {
 
 test("entrega concluída exige canhoto antes do envio", () => {
   assert.throws(() => validateInput({
-    status: "delivered", arrivalTime: "11:00", reason: "", hasPhoto: false
+    status: "delivered", started: true, hasPhoto: false
   }), /Fotografe o canhoto/);
   assert.deepEqual(validateInput({
-    status: "delivered", arrivalTime: "11:00", reason: "", hasPhoto: true
-  }), { status: "delivered", arrivalTime: "11:00", reason: "" });
+    status: "delivered", started: true, hasPhoto: true, observation: "Canhoto legível"
+  }), {
+    status: "delivered", reason: "", observation: "Canhoto legível", occurrenceType: "",
+    itemCode: "", expectedQuantity: "", receivedQuantity: ""
+  });
 });
 
-test("recusa, parcial e ocorrência exigem motivo antes do envio", () => {
-  for (const status of ["refused", "partial", "occurrence"]) {
-    assert.equal(requirements(status).reasonRequired, true);
-    assert.throws(() => validateInput({
-      status, arrivalTime: "11:00", reason: "", hasPhoto: false
-    }), /pelo menos 3 caracteres/);
-    assert.equal(validateInput({
-      status, arrivalTime: "11:00", reason: "Cliente fechado", hasPhoto: false
-    }).status, status);
-  }
-});
-
-test("situação e horário inválidos são bloqueados com mensagem clara", () => {
-  assert.throws(() => validateInput({ status: "pending", arrivalTime: "11:00" }), /situação válida/);
+test("recusa aceita somente os dois motivos operacionais", () => {
   assert.throws(() => validateInput({
-    status: "refused", arrivalTime: "25:70", reason: "Recusa", hasPhoto: false
-  }), /horário de chegada válido/);
-  assert.equal(statusLabel("refused"), "Recusada");
+    status: "refused", started: true, refusalReason: "Cliente fechado"
+  }), /Pedido Duplicado ou Sem Pedido/);
+  assert.equal(validateInput({
+    status: "refused", started: true, refusalReason: "Sem Pedido"
+  }).reason, "Sem Pedido");
+});
+
+test("ocorrência geral e falta parcial são validadas separadamente", () => {
+  assert.throws(() => validateInput({
+    status: "occurrence", started: true, occurrenceType: "general", reason: ""
+  }), /Descreva o motivo/);
+  assert.throws(() => validateInput({
+    status: "occurrence", started: true, occurrenceType: "partial_shortage",
+    itemCode: "1940", expectedQuantity: "12", receivedQuantity: "12"
+  }), /deve ser menor/);
+  const partial = validateInput({
+    status: "occurrence", started: true, occurrenceType: "partial_shortage",
+    itemCode: "1940", expectedQuantity: "12", receivedQuantity: "11"
+  });
+  assert.equal(partial.reason, "Falta parcial");
+  assert.equal(partial.itemCode, "1940");
+});
+
+test("situação inválida e ausência do início são bloqueadas", () => {
+  assert.throws(() => validateInput({ status: "pending", started: true }), /situação válida/);
+  assert.throws(() => validateInput({ status: "delivered", hasPhoto: true }), /Iniciar descarregamento/);
+  assert.equal(statusLabel("refused"), "Recusa");
+  assert.equal(requirements("partial"), null);
 });

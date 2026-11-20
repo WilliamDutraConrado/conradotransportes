@@ -17,6 +17,7 @@ import threading
 import urllib.error
 import urllib.request
 import zlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from conrado.config import load_env_file
@@ -93,6 +94,7 @@ def _cleanup(dsn: str, ids: dict) -> None:
         if note_id:
             db.execute("DELETE FROM app.evidence WHERE note_id=%s", (note_id,))
             db.execute("DELETE FROM app.delivery_events WHERE note_id=%s", (note_id,))
+            db.execute("DELETE FROM app.delivery_starts WHERE note_id=%s", (note_id,))
         if trip_id:
             db.execute("DELETE FROM app.notes WHERE trip_id=%s", (trip_id,))
         if driver_id:
@@ -225,6 +227,15 @@ def run_e2e(dsn: str, admin_token: str) -> dict:
         stage = "consulta da viagem ativa"
         active = _request(base_url, "/api/driver/trip", token=driver_token)
         ids["note_id"] = active["trip"]["notes"][0]["id"]
+        start_id = "e2e-" + marker + "-start"
+        stage = "início do descarregamento com localização fictícia"
+        started = _request(
+            base_url, f"/api/driver/notes/{ids['note_id']}/start", token=driver_token,
+            body={"start_id": start_id, "started_at": datetime.now(timezone.utc).isoformat(),
+                  "latitude": -20.145, "longitude": -44.883, "accuracy_m": 15},
+        )
+        if started.get("start_id") != start_id or not started.get("location_recorded"):
+            raise RuntimeError("O início do descarregamento não preservou horário e localização")
         event_id = "e2e-" + marker + "-event"
         photo = synthetic_png()
         photo_sha = hashlib.sha256(photo).hexdigest()
@@ -232,19 +243,24 @@ def run_e2e(dsn: str, admin_token: str) -> dict:
             f"viagens/{ids['trip_id']}/notas/{ids['note_id']}/"
             f"{event_id}-{photo_sha[:12]}.png"
         )
-        stage = "upload do canhoto"
-        occurrence = _request(
+        stage = "baixa entregue com canhoto"
+        delivery = _request(
             base_url, f"/api/driver/notes/{ids['note_id']}/status", token=driver_token,
-            body={"event_id": event_id, "status": "occurrence",
-                  "reason": "Falta de produto no teste fictício", "arrival_time": "11:00",
-                  "affected_item": "01 (uma) Caixa Whey CÓD.: 1940", "seller_name": "IAN TESTE",
+            body={"event_id": event_id, "status": "delivered", "start_id": start_id,
+                  "completed_at": datetime.now(timezone.utc).isoformat(),
                   "photo_base64": base64.b64encode(photo).decode()},
         )
-        share_text = occurrence.get("share_text", "")
-        for expected in ("CLIENTE FICTÍCIO E2E", "NF: 999999", "Cidade: ITAÚNA",
-                         "Chegada no cliente: 11:00", "CÓD.: 1940", plate[:3] + "-" + plate[3:]):
-            if expected not in share_text:
-                raise RuntimeError("O texto da ocorrência fictícia ficou incompleto")
+        if delivery.get("status") != "delivered" or delivery.get("duration_seconds") is None:
+            raise RuntimeError("A baixa entregue não preservou o tempo de atendimento")
+        stage = "ocultação da entrega concluída"
+        active = _request(base_url, "/api/driver/trip", token=driver_token)
+        if active.get("trip", {}).get("notes"):
+            raise RuntimeError("A entrega concluída ainda aparece na rota ativa")
+        stage = "histórico administrativo da entrega"
+        detail = _request(base_url, f"/api/trips/{ids['trip_id']}/detail", token=admin_session)
+        event = detail["notes"][0]["events"][0]
+        if event.get("status") != "delivered" or event.get("latitude") != -20.145:
+            raise RuntimeError("O histórico não preservou a baixa e a localização")
         stage = "acesso administrativo ao canhoto"
         evidence_access = _request(
             base_url, f"/api/evidence/{event_id}/access", token=admin_session
@@ -265,7 +281,8 @@ def run_e2e(dsn: str, admin_token: str) -> dict:
         _request(base_url, "/api/driver/logout", token=driver_token, body={})
         stage = "logout administrativo"
         _request(base_url, "/api/admin/logout", token=admin_session, body={})
-        return {"imported": 1, "occurrence": True, "storage": True, "closed": True}
+        return {"imported": 1, "delivery": True, "timing": True,
+                "route_hidden": True, "storage": True, "closed": True}
     except Exception as exc:
         raise E2EFailure(f"falha na etapa: {stage}") from exc
     finally:
@@ -301,7 +318,7 @@ def main() -> int:
         detail = str(exc) if isinstance(exc, E2EFailure) else "falha de configuração ou conexão"
         print(f"E2E pendente: {detail}. A rotina de limpeza foi executada.")
         return 1
-    print("E2E aprovado: NF-e fictícia, ocorrência, canhoto privado e encerramento validados.")
+    print("E2E aprovado: NF-e fictícia, início, baixa, canhoto privado, ocultação e encerramento validados.")
     print("Limpeza confirmada: nenhum registro ou arquivo fictício permaneceu.")
     return 0 if all(result.values()) else 1
 

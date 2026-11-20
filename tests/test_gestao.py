@@ -3,12 +3,14 @@ import base64
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from conrado.gestao import Handler, Server
+from conrado.store import ServiceUnavailable
 from conrado.version import VERSION
 from test_importer import xml
 
@@ -78,6 +80,28 @@ class APITest(unittest.TestCase):
         self.assertEqual(headers["Retry-After"], "300")
         self.assertIn("cinco minutos", result["erro"])
 
+    def test_falha_transitoria_da_foto_retorna_503_para_fila_offline(self):
+        _, driver = self.request(
+            "/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"},
+        )
+        self.request(f"/api/drivers/{driver['driver_id']}/password",
+                     {"password": "SenhaIndividualSegura2026!"})
+        _, login = self.request(
+            "/api/driver/login", {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+            authorized=False,
+        )
+        self.server.db.record_delivery = MagicMock(side_effect=ServiceUnavailable("Storage indisponível"))
+
+        status, result, headers = self.request(
+            "/api/driver/notes/1/status",
+            {"event_id": "evento-storage-123", "status": "delivered"},
+            authorized=False, auth_token=login["token"], with_headers=True,
+        )
+
+        self.assertEqual(status, 503)
+        self.assertEqual(headers["Retry-After"], "30")
+        self.assertEqual(result["erro"], "Storage indisponível")
+
     def test_respostas_incluem_cabecalhos_de_seguranca(self):
         status, _, headers = self.request("/api/drivers", with_headers=True)
         self.assertEqual(status, 200)
@@ -88,6 +112,8 @@ class APITest(unittest.TestCase):
         self.assertNotIn("Python", headers["Server"])
         self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
+        self.assertIn("geolocation=(self)", headers["Permissions-Policy"])
+        self.assertIn("microphone=()", headers["Permissions-Policy"])
 
     def test_healthcheck_e_readiness_nao_exigem_token(self):
         status, health = self.request("/healthz", authorized=False)
@@ -120,6 +146,7 @@ class APITest(unittest.TestCase):
         with urlopen(base + "/assets/delivery-form.js", timeout=5) as response:
             delivery_form = response.read().decode()
             self.assertEqual(response.headers.get_content_type(), "text/javascript")
+            self.assertEqual(response.headers["Cache-Control"], "no-cache")
         self.assertIn("validateInput", delivery_form)
         with urlopen(base + "/motorista", timeout=5) as response:
             html = response.read().decode()
@@ -175,6 +202,59 @@ class APITest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(result["logged_out"])
         self.assertEqual(self.request("/api/driver/trip", authorized=False, auth_token=token)[0], 401)
+
+    def test_inicio_baixa_foto_ocultacao_e_estorno_preservam_historico(self):
+        _, driver = self.request(
+            "/api/drivers", {"name": "Motorista Teste", "plate": "ABC1D23", "vehicle_type": "3/4"},
+        )
+        self.request(f"/api/drivers/{driver['driver_id']}/password",
+                     {"password": "SenhaIndividualSegura2026!"})
+        _, trip = self.request("/api/trips", {"vehicle_id": driver["vehicle_id"], "label": "Rota teste"})
+        payload = {"arquivos": [{
+            "name": "nf.xml", "base64": base64.b64encode(xml("1" * 44)).decode(),
+        }]}
+        self.assertEqual(self.request(f"/api/trips/{trip['trip_id']}/import", payload)[0], 200)
+        self.assertEqual(self.request(f"/api/trips/{trip['trip_id']}/release", {})[0], 200)
+        _, login = self.request(
+            "/api/driver/login", {"plate": "ABC1D23", "password": "SenhaIndividualSegura2026!"},
+            authorized=False,
+        )
+        token = login["token"]
+        _, route = self.request("/api/driver/trip", authorized=False, auth_token=token)
+        note_id = route["trip"]["notes"][0]["id"]
+        started_at = datetime.now(timezone.utc).isoformat()
+        status, started = self.request(
+            f"/api/driver/notes/{note_id}/start",
+            {"start_id": "inicio-api-123456", "started_at": started_at,
+             "latitude": -20.145, "longitude": -44.883, "accuracy_m": 18},
+            authorized=False, auth_token=token,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(started["location_recorded"])
+        jpeg = base64.b64encode(b"\xff\xd8\xff" + b"canhoto-ficticio" * 10 + b"\xff\xd9").decode()
+        status, delivery = self.request(
+            f"/api/driver/notes/{note_id}/status",
+            {"event_id": "evento-api-123456", "status": "delivered", "reason": "",
+             "photo_base64": jpeg, "start_id": started["start_id"],
+             "completed_at": datetime.now(timezone.utc).isoformat()},
+            authorized=False, auth_token=token,
+        )
+        self.assertEqual((status, delivery["status"]), (200, "delivered"))
+        _, route = self.request("/api/driver/trip", authorized=False, auth_token=token)
+        self.assertEqual(route["trip"]["notes"], [])
+
+        _, detail = self.request(f"/api/trips/{trip['trip_id']}/detail")
+        self.assertEqual(detail["notes"][0]["events"][0]["latitude"], -20.145)
+        self.assertIsNotNone(detail["notes"][0]["events"][0]["duration_seconds"])
+        status, reopened = self.request(
+            f"/api/notes/{note_id}/reopen", {"reason": "Canhoto anexado à nota incorreta"},
+        )
+        self.assertEqual((status, reopened["status"]), (200, "pending"))
+        _, route = self.request("/api/driver/trip", authorized=False, auth_token=token)
+        self.assertEqual([note["id"] for note in route["trip"]["notes"]], [note_id])
+        _, detail = self.request(f"/api/trips/{trip['trip_id']}/detail")
+        self.assertEqual(len(detail["notes"][0]["events"]), 1)
+        self.assertEqual(len(detail["notes"][0]["reversals"]), 1)
 
     def test_login_administrativo_individual_e_logout(self):
         admin = self.server.db.create_admin("gestor", "SenhaAdministrativaSegura!")

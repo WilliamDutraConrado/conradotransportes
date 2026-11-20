@@ -6,6 +6,7 @@ Uso exclusivo no backend; nunca envie a chave de serviço ao aplicativo.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -91,9 +92,20 @@ class SupabaseStorage:
         sha = hashlib.sha256(content).hexdigest()
         path = f"viagens/{trip_id}/notas/{note_id}/{event_id}-{sha[:12]}{ext}"
         quoted = urllib.parse.quote(path, safe="/")
-        result = self._request("/storage/v1/object/canhotos/" + quoted, content, mime, upsert=True)
-        if not isinstance(result, dict):
-            raise StorageError("Resposta inválida do armazenamento")
+        try:
+            result = self._request("/storage/v1/object/canhotos/" + quoted, content, mime, upsert=True)
+            if not isinstance(result, dict):
+                raise StorageError("Resposta inválida do armazenamento")
+        except StorageError as upload_error:
+            # O caminho contém event_id + hash e é determinístico. Se a conexão
+            # cair depois de o Storage persistir o objeto, valide o conteúdo
+            # privado e trate a repetição como sucesso em vez de bloquear a NF-e.
+            try:
+                recovered = self.download(path)
+            except StorageError:
+                raise upload_error
+            if not hmac.compare_digest(hashlib.sha256(recovered).hexdigest(), sha):
+                raise upload_error
         return UploadedEvidence(path=path, sha256=sha, mime=mime, size=len(content))
 
     def signed_download_url(self, path: str, seconds: int = 300) -> str:

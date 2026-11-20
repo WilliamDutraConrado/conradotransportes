@@ -33,7 +33,8 @@ KDF_ITERATIONS = 1_200_000
 MAX_BACKUP_BYTES = 512 * 1024 * 1024
 TABLES = (
     "drivers", "vehicles", "trips", "notes", "driver_auth", "driver_sessions",
-    "admin_users", "admin_sessions", "login_limits", "delivery_events", "evidence", "audit",
+    "admin_users", "admin_sessions", "login_limits", "delivery_starts", "delivery_events",
+    "evidence", "audit",
 )
 
 

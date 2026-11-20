@@ -78,6 +78,20 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual([params[0] for _, params in verification.executed],
                          ["audit", "evidence", "delivery_events", "admin_sessions", "driver_sessions"])
 
+    def test_delivery_workflow_migration_is_additive_and_private(self):
+        migration, verification = Connection(), Connection(verification=True)
+        connections = iter((migration, verification))
+
+        apply_migration("postgresql://redacted", "007_delivery_workflow",
+                        connect=lambda *_args, **_kwargs: next(connections))
+
+        sql = migration.executed[0][0]
+        self.assertIn("CREATE TABLE IF NOT EXISTS app.delivery_starts", sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS completed_at", sql)
+        self.assertIn("ENABLE ROW LEVEL SECURITY", sql)
+        self.assertEqual([params[0] for _, params in verification.executed],
+                         ["delivery_starts", "delivery_events"])
+
     def test_connection_error_does_not_leak_secret(self):
         def connect(*args, **kwargs):
             raise OSError("credencial-sensivel-simulada")

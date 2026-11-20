@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from conrado.postgres_store import PostgresStore
-from conrado.store import BusinessError
+from conrado.store import BusinessError, ServiceUnavailable
+from conrado.supabase_storage import StorageError
 
 
 class FakePostgres(PostgresStore):
@@ -116,9 +117,30 @@ class PostgresStoreTests(unittest.TestCase):
         photo = base64.b64encode(b"\xff\xd8\xff" + b"dados" * 30 + b"\xff\xd9").decode()
 
         with self.assertRaisesRegex(RuntimeError, "falha de commit simulada"):
-            store.record_delivery(1, 2, "event-123456789", "delivered", "", photo)
+            store.record_delivery(
+                1, 2, "event-123456789", "delivered", "", photo, arrival_time="11:00",
+            )
 
         store.storage.delete.assert_called_once_with(uploaded.path)
+
+    def test_storage_transitorio_e_sinalizado_para_fila_offline(self):
+        store = FakePostgres([
+            None,
+            None,
+            {"status": "pending", "number": "123", "recipient": "Cliente", "city": "Itaúna",
+             "seller": "Ian", "trip_id": 3, "trip_status": "released", "plate": "ABC1D23",
+             "driver": "Motorista"},
+            None,
+        ])
+        store.storage.upload.side_effect = StorageError("indisponível")
+        photo = base64.b64encode(b"\xff\xd8\xff" + b"dados" * 30 + b"\xff\xd9").decode()
+
+        with self.assertRaises(ServiceUnavailable):
+            store.record_delivery(
+                1, 2, "event-storage-123", "delivered", "", photo, arrival_time="11:00",
+            )
+
+        store.storage.delete.assert_not_called()
 
     def test_summary_populates_missing_statuses(self):
         store = FakePostgres([[], []])
@@ -131,15 +153,41 @@ class PostgresStoreTests(unittest.TestCase):
             [{"id": 8, "number": "123", "recipient": "Cliente", "address": "Rua 1",
               "status": "occurrence", "gross_weight": Decimal("10.500"), "volumes": 2}],
             [{"id": "event-123456789", "note_id": 8, "status": "occurrence", "reason": "Avaria",
-              "created_at": "2026-11-17 12:00:00+00", "driver": "Motorista", "has_evidence": False}],
+              "created_at": "2026-11-17 12:00:00+00", "driver": "Motorista", "has_evidence": False,
+              "latitude": Decimal("-20.145000"), "longitude": Decimal("-44.883000"),
+              "accuracy_m": Decimal("15.0")}],
         ])
 
         detail = store.trip_detail(3)
 
         self.assertEqual(detail["notes"][0]["events"][0]["reason"], "Avaria")
         self.assertEqual(detail["notes"][0]["gross_weight"], 10.5)
+        self.assertIsInstance(detail["notes"][0]["events"][0]["latitude"], float)
         self.assertNotIn("note_id", detail["notes"][0]["events"][0])
         self.assertIn("app.delivery_events", store.calls[2][0])
+
+    def test_driver_trip_ordena_nf_e_serializa_localizacao_numeric(self):
+        store = FakePostgres([
+            {"id": 3, "label": "Rota", "plate": "ABC1D23"},
+            [
+                {"id": 10, "number": "10", "recipient": "C", "recipient_id": "3",
+                 "address": "Rua C", "city": "Itaúna", "seller": "", "items": [], "status": "pending"},
+                {"id": 2, "number": "2", "recipient": "B", "recipient_id": "2",
+                 "address": "Rua B", "city": "Itaúna", "seller": "", "items": [], "status": "pending"},
+                {"id": 1, "number": "1", "recipient": "A", "recipient_id": "1",
+                 "address": "Rua A", "city": "Itaúna", "seller": "", "items": [], "status": "pending"},
+            ],
+            {"total": 3},
+            [{"id": "inicio-teste-123", "note_id": 1, "started_at": "2026-11-20T12:00:00+00:00",
+              "latitude": Decimal("-20.145000"), "longitude": Decimal("-44.883000"),
+              "accuracy_m": Decimal("15.0")}],
+        ])
+
+        route = store.driver_trip(7)
+
+        self.assertEqual([note["number"] for note in route["notes"]], ["1", "2", "10"])
+        self.assertEqual(route["notes"][0]["start"]["latitude"], -20.145)
+        self.assertIsInstance(route["notes"][0]["start"]["accuracy_m"], float)
 
     def test_evidence_access_returns_short_lived_signed_url(self):
         store = FakePostgres([{"storage_path": "viagens/3/notas/2/event-123456789-abcdef012345.jpg"}])

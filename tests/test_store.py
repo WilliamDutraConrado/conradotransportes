@@ -21,6 +21,14 @@ class StoreTest(unittest.TestCase):
     def tearDown(self):
         self.folder.cleanup()
 
+    def start_note(self, note_id, suffix="01", *, latitude=None, longitude=None, accuracy_m=None):
+        start_id = f"inicio-teste-{suffix}"
+        result = self.db.start_unloading(
+            self.driver["driver_id"], note_id, start_id, datetime.now(timezone.utc).isoformat(),
+            latitude, longitude, accuracy_m,
+        )
+        return result["start_id"]
+
     def test_cadastro_normaliza_placa_e_rejeita_duplicada(self):
         self.assertEqual(self.db.drivers()[0]["plate"], "ABC1D23")
         with self.assertRaises(BusinessError):
@@ -45,7 +53,11 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.db.summary()["notes"]["pending"], 1)
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
-        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-1234567890", "occurrence", "Avaria")
+        start_id = self.start_note(note_id, "indicadores")
+        self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-1234567890", "occurrence", "Avaria",
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
+        )
         summary = self.db.summary()
         self.assertEqual(summary["trips"]["released"], 1)
         self.assertEqual(summary["notes"]["pending"], 0)
@@ -56,7 +68,11 @@ class StoreTest(unittest.TestCase):
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX), parse_nfe(xml("2" * 44), REGEX)])
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
-        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-produtividade", "occurrence", "Avaria")
+        start_id = self.start_note(note_id, "produtividade")
+        self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-produtividade", "occurrence", "Avaria",
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
+        )
 
         metric = self.db.driver_productivity()[0]
 
@@ -77,28 +93,63 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(detail["notes"][0]["events"], [])
         self.assertIsNone(self.db.trip_detail(99999))
 
+    def test_rota_ordena_nfs_numericamente_e_exibe_atendimento_ativo(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Carga em ordem de canhoteira")
+        notes = []
+        for key, number in (("1" * 44, "10"), ("2" * 44, "2"), ("3" * 44, "1")):
+            note = parse_nfe(xml(key), REGEX)
+            note["numero"] = number
+            notes.append(note)
+        self.db.import_notes(trip["trip_id"], notes)
+        self.db.release_trip(trip["trip_id"])
+
+        route = self.db.driver_trip(self.driver["driver_id"])
+        self.assertEqual([note["number"] for note in route["notes"]], ["1", "2", "10"])
+        first_id = route["notes"][0]["id"]
+        start_id = self.start_note(first_id, "ordem-ativa", latitude=-20.1,
+                                   longitude=-44.9, accuracy_m=12)
+        route_after_start = self.db.driver_trip(self.driver["driver_id"])
+        detail_note = next(note for note in self.db.trip_detail(trip["trip_id"])["notes"]
+                           if note["id"] == first_id)
+        self.assertEqual(detail_note["active_start"]["latitude"], -20.1)
+        self.assertEqual(detail_note["active_start"]["started_at"],
+                         route_after_start["notes"][0]["start"]["started_at"])
+        self.assertEqual(route_after_start["notes"][0]["start"]["id"], start_id)
+
     def test_detalhe_exibe_historico_cronologico_por_nota(self):
         trip = self.db.create_trip(self.driver["vehicle_id"], "Carga com ocorrência")
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("1" * 44), REGEX)])
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        first_start = self.start_note(note_id, "historico-01", latitude=-20.0, longitude=-44.0, accuracy_m=15)
         result = self.db.record_delivery(
             self.driver["driver_id"], note_id, "evento-historico-01", "occurrence", "Falta de produto",
-            arrival_time="11:00", affected_item="01 (uma) caixa - Whey UHT • CÓD.: 1940",
+            start_id=first_start, completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
+            observation="Caixa avariada",
         )
-        self.db.record_delivery(self.driver["driver_id"], note_id, "evento-historico-02", "partial", "Cliente recebeu parcialmente")
+        self.db.reopen_note(note_id, "Correção da tratativa", actor="admin:1")
+        second_start = self.start_note(note_id, "historico-02")
+        self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-historico-02", "occurrence", "",
+            start_id=second_start, completed_at=datetime.now(timezone.utc).isoformat(),
+            occurrence_type="partial_shortage", affected_item="1940",
+            expected_quantity="12", received_quantity="11",
+        )
 
-        events = self.db.trip_detail(trip["trip_id"])["notes"][0]["events"]
-        self.assertEqual([event["status"] for event in events], ["occurrence", "partial"])
+        detail = self.db.trip_detail(trip["trip_id"])["notes"][0]
+        events = detail["events"]
+        self.assertEqual([event["status"] for event in events], ["occurrence", "occurrence"])
         self.assertEqual(events[0]["reason"], "Falta de produto")
         self.assertEqual(events[0]["driver"], "Motorista Teste")
         self.assertFalse(events[0]["has_evidence"])
+        self.assertEqual(events[0]["observation"], "Caixa avariada")
+        self.assertEqual(len(detail["reversals"]), 1)
         self.assertNotIn("note_id", events[0])
         self.assertIn("Cliente: Cliente Teste", result["share_text"])
         self.assertIn("NF: 123", result["share_text"])
         self.assertIn("Cidade: Divinópolis", result["share_text"])
-        self.assertIn("Chegada no cliente: 11:00", result["share_text"])
-        self.assertIn("Item: 01 (uma) caixa - Whey UHT • CÓD.: 1940", result["share_text"])
+        self.assertIn("Chegada no cliente:", result["share_text"])
+        self.assertIn("Observação: Caixa avariada", result["share_text"])
         self.assertIn("Vendedor: Ian Silva", result["share_text"])
         self.assertIn("Motorista: Motorista Teste", result["share_text"])
         self.assertIn("Placa: ABC-1D23", result["share_text"])
@@ -142,21 +193,47 @@ class StoreTest(unittest.TestCase):
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
         event = "evento-1234567890"
-        first = self.db.record_delivery(self.driver["driver_id"], note_id, event, "occurrence", "Produto avariado")
+        start_id = self.start_note(note_id, "idempotente")
+        first = self.db.record_delivery(
+            self.driver["driver_id"], note_id, event, "occurrence", "Produto avariado",
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
+        )
         second = self.db.record_delivery(self.driver["driver_id"], note_id, event, "occurrence", "Produto avariado")
         self.assertFalse(first["duplicate"])
         self.assertTrue(second["duplicate"])
         self.assertEqual(second["share_text"], first["share_text"])
         self.assertEqual(second["status"], "occurrence")
-        self.assertEqual(self.db.driver_trip(self.driver["driver_id"])["notes"][0]["status"], "occurrence")
+        self.assertEqual(self.db.driver_trip(self.driver["driver_id"])["notes"], [])
         self.db.set_driver_password(self.driver["driver_id"], "OutraSenhaSegura2026!")
         self.assertIsNone(self.db.driver_by_token(token))
+
+    def test_baixa_nao_pode_ser_sobrescrita_e_recusa_tem_motivos_fechados(self):
+        trip = self.db.create_trip(self.driver["vehicle_id"], "Regras de integridade")
+        self.db.import_notes(trip["trip_id"], [parse_nfe(xml("7" * 44), REGEX)])
+        self.db.release_trip(trip["trip_id"])
+        note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        start_id = self.start_note(note_id, "recusa-regra")
+        with self.assertRaisesRegex(BusinessError, "Pedido Duplicado ou Sem Pedido"):
+            self.db.record_delivery(
+                self.driver["driver_id"], note_id, "evento-recusa-invalida", "refused", "Cliente ausente",
+                start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+        self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-recusa-valida", "refused", "Sem Pedido",
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        with self.assertRaisesRegex(BusinessError, "somente um administrador pode estornar"):
+            self.db.record_delivery(
+                self.driver["driver_id"], note_id, "evento-sobrescrita", "occurrence", "Tentativa indevida",
+                arrival_time="11:00", occurrence_type="general",
+            )
 
     def test_reenvios_concorrentes_gravam_um_unico_evento(self):
         trip = self.db.create_trip(self.driver["vehicle_id"], "Rota concorrente")
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("8" * 44), REGEX)])
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        start_id = self.start_note(note_id, "concorrente")
         barrier = threading.Barrier(2)
         results, errors = [], []
 
@@ -165,7 +242,8 @@ class StoreTest(unittest.TestCase):
                 barrier.wait(timeout=5)
                 results.append(self.db.record_delivery(
                     self.driver["driver_id"], note_id, "evento-concorrente-01",
-                    "occurrence", "Falha de internet simulada",
+                    "occurrence", "Falha de internet simulada", start_id=start_id,
+                    completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
                 ))
             except Exception as exc:  # registrado para a asserção da thread principal
                 errors.append(exc)
@@ -306,7 +384,11 @@ class StoreTest(unittest.TestCase):
             self.db.close_driver_trip(self.driver["driver_id"], trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
         jpeg = base64.b64encode(b"\xff\xd8\xff" + b"test-fixture" * 15 + b"\xff\xd9").decode()
-        result = self.db.record_delivery(self.driver["driver_id"], note_id, "evento-1234567890", "delivered", "", jpeg)
+        start_id = self.start_note(note_id, "entregue")
+        result = self.db.record_delivery(
+            self.driver["driver_id"], note_id, "evento-1234567890", "delivered", "", jpeg,
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(),
+        )
         self.assertEqual(result["status"], "delivered")
         repeated = self.db.record_delivery(
             self.driver["driver_id"], note_id, "evento-1234567890", "delivered", ""
@@ -331,8 +413,10 @@ class StoreTest(unittest.TestCase):
         self.db.import_notes(trip["trip_id"], [parse_nfe(xml("6" * 44), REGEX)])
         self.db.release_trip(trip["trip_id"])
         note_id = self.db.driver_trip(self.driver["driver_id"])["notes"][0]["id"]
+        start_id = self.start_note(note_id, "retencao")
         self.db.record_delivery(
             self.driver["driver_id"], note_id, "evento-retencao-01", "occurrence", "Avaria no produto",
+            start_id=start_id, completed_at=datetime.now(timezone.utc).isoformat(), occurrence_type="general",
         )
         old = (datetime.now(timezone.utc) - timedelta(days=900)).isoformat()
         with self.db.connection() as connection:

@@ -17,8 +17,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from conrado.store import (
-    BusinessError, login_limit_keys, normalize_admin_role, normalize_admin_username, normalize_plate,
-    occurrence_message,
+    BusinessError, DELIVERY_STATUSES, OCCURRENCE_TYPES, REFUSAL_REASONS, ServiceUnavailable, client_timestamp,
+    invoice_sort_key, login_limit_keys, normalize_admin_role, normalize_admin_username,
+    normalize_plate, normalized_location, normalized_quantity, occurrence_message,
 )
 from conrado.supabase_storage import StorageError, detect_image
 
@@ -82,17 +83,24 @@ class PostgresStore:
         if not 1 <= limit <= 50_000:
             raise BusinessError("Limite de exportação inválido")
         with self.connection() as db:
-            rows = db.execute("""SELECT e.created_at,e.status,e.reason,e.arrival_time,e.affected_item,
-                e.seller_name,n.number AS invoice,n.recipient,n.city,t.label AS trip,v.plate,
+            rows = db.execute("""SELECT e.created_at,e.completed_at,e.status,e.reason,e.arrival_time,
+                e.affected_item,e.occurrence_type,e.observation,e.expected_quantity,e.received_quantity,
+                e.seller_name,s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                CASE WHEN s.started_at IS NULL THEN NULL ELSE
+                    GREATEST(0,EXTRACT(EPOCH FROM (e.completed_at-s.started_at))::bigint) END AS duration_seconds,
+                n.number AS invoice,n.recipient,n.city,t.label AS trip,v.plate,
                 d.name AS driver,(x.id IS NOT NULL) AS has_evidence
                 FROM app.delivery_events e JOIN app.notes n ON n.id=e.note_id
                 JOIN app.trips t ON t.id=n.trip_id JOIN app.vehicles v ON v.id=t.vehicle_id
                 JOIN app.drivers d ON d.id=e.driver_id LEFT JOIN app.evidence x ON x.event_id=e.id
+                LEFT JOIN app.delivery_starts s ON s.id=e.start_id
                 WHERE e.status<>'delivered' ORDER BY e.created_at,e.id LIMIT %s""", (limit,)).fetchall()
             result = []
             for row in rows:
                 item = dict(row)
-                item["created_at"] = item["created_at"].isoformat()
+                for key in ("created_at", "completed_at", "started_at"):
+                    if item.get(key) is not None:
+                        item[key] = item[key].isoformat()
                 result.append(item)
             return result
 
@@ -268,25 +276,63 @@ class PostgresStore:
                 return None
             notes = db.execute("""SELECT n.id,n.number,n.recipient,n.address,n.city,n.seller,n.items,n.status,
                 n.gross_weight,n.volumes FROM app.notes n WHERE n.trip_id=%s
-                ORDER BY n.recipient,n.address,n.number,n.id""", (trip_id,)).fetchall()
+                ORDER BY n.id""", (trip_id,)).fetchall()
             events = db.execute("""SELECT e.id,e.note_id,e.status,e.reason,e.arrival_time,
                 e.affected_item,e.seller_name,e.created_at::text AS created_at,
+                e.completed_at::text AS completed_at,e.occurrence_type,e.observation,
+                e.expected_quantity,e.received_quantity,s.started_at::text AS started_at,
+                s.latitude,s.longitude,s.accuracy_m,
                 d.name AS driver,EXISTS (
                     SELECT 1 FROM app.evidence x WHERE x.event_id=e.id
                 ) AS has_evidence
                 FROM app.delivery_events e JOIN app.drivers d ON d.id=e.driver_id
+                LEFT JOIN app.delivery_starts s ON s.id=e.start_id
                 JOIN app.notes n ON n.id=e.note_id WHERE n.trip_id=%s
                 ORDER BY e.created_at,e.id""", (trip_id,)).fetchall()
+            reversals = db.execute("""SELECT a.object_id AS note_id,a.happened_at::text AS happened_at,
+                a.actor,a.payload FROM app.audit a JOIN app.notes n ON n.id=a.object_id
+                WHERE a.object_type='note' AND a.event='delivery_reverted' AND n.trip_id=%s
+                ORDER BY a.happened_at,a.id""", (trip_id,)).fetchall()
+            active_starts = db.execute("""SELECT s.note_id,s.started_at::text AS started_at,
+                s.latitude,s.longitude,s.accuracy_m
+                FROM app.delivery_starts s LEFT JOIN app.delivery_events e ON e.start_id=s.id
+                JOIN app.notes n ON n.id=s.note_id
+                WHERE n.trip_id=%s AND n.status='pending' AND e.id IS NULL
+                ORDER BY s.recorded_at DESC""", (trip_id,)).fetchall()
             events_by_note = {}
             for event in events:
                 item = dict(event)
+                for key in ("latitude", "longitude", "accuracy_m"):
+                    if item.get(key) is not None:
+                        item[key] = float(item[key])
+                item["duration_seconds"] = None
+                if item.get("started_at") and item.get("completed_at"):
+                    try:
+                        started = datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                        completed = datetime.fromisoformat(item["completed_at"].replace("Z", "+00:00"))
+                        item["duration_seconds"] = max(0, int((completed - started).total_seconds()))
+                    except ValueError:
+                        pass
                 events_by_note.setdefault(item.pop("note_id"), []).append(item)
+            reversals_by_note = {}
+            for reversal in reversals:
+                item = dict(reversal)
+                reversals_by_note.setdefault(item.pop("note_id"), []).append(item)
+            active_starts_by_note = {}
+            for start in active_starts:
+                item = dict(start)
+                for key in ("latitude", "longitude", "accuracy_m"):
+                    if item.get(key) is not None:
+                        item[key] = float(item[key])
+                active_starts_by_note.setdefault(item.pop("note_id"), item)
             result_notes = []
-            for note in notes:
+            for note in sorted(notes, key=lambda row: (invoice_sort_key(row["number"]), row["id"])):
                 item = dict(note)
                 if item.get("gross_weight") is not None:
                     item["gross_weight"] = float(item["gross_weight"])
                 item["events"] = events_by_note.get(item["id"], [])
+                item["reversals"] = reversals_by_note.get(item["id"], [])
+                item["active_start"] = active_starts_by_note.get(item["id"])
                 result_notes.append(item)
             return {**dict(trip), "notes": result_notes}
 
@@ -479,8 +525,88 @@ class PostgresStore:
             if not trip:
                 return None
             notes = db.execute("""SELECT id,number,recipient,recipient_id,address,city,seller,items,status FROM app.notes
-                WHERE trip_id=%s ORDER BY recipient,address,number""", (trip["id"],)).fetchall()
-            return {**dict(trip), "notes": [dict(n) for n in notes]}
+                WHERE trip_id=%s AND status='pending' ORDER BY id""", (trip["id"],)).fetchall()
+            total_notes = db.execute("SELECT COUNT(*) AS total FROM app.notes WHERE trip_id=%s",
+                                     (trip["id"],)).fetchone()["total"]
+            starts = db.execute("""SELECT s.id,s.note_id,s.started_at::text AS started_at,
+                s.latitude,s.longitude,s.accuracy_m FROM app.delivery_starts s
+                LEFT JOIN app.delivery_events e ON e.start_id=s.id JOIN app.notes n ON n.id=s.note_id
+                WHERE n.trip_id=%s AND e.id IS NULL ORDER BY s.recorded_at DESC""", (trip["id"],)).fetchall()
+            starts_by_note = {}
+            for start in starts:
+                item = dict(start)
+                for key in ("latitude", "longitude", "accuracy_m"):
+                    if item.get(key) is not None:
+                        item[key] = float(item[key])
+                starts_by_note.setdefault(item["note_id"], item)
+            result_notes = []
+            for note in sorted(notes, key=lambda row: (invoice_sort_key(row["number"]), row["id"])):
+                item = dict(note)
+                item["start"] = starts_by_note.get(item["id"])
+                result_notes.append(item)
+            return {**dict(trip), "total_notes": total_notes, "notes": result_notes}
+
+    def start_unloading(self, driver_id, note_id, start_id, started_at,
+                        latitude=None, longitude=None, accuracy_m=None):
+        if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", str(start_id)):
+            raise BusinessError("Identificador do início inválido")
+        started = client_timestamp(started_at, "Horário de início")
+        lat, lng, accuracy = normalized_location(latitude, longitude, accuracy_m)
+        with self.connection() as db:
+            db.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (str(start_id),))
+            existing = db.execute("SELECT * FROM app.delivery_starts WHERE id=%s", (start_id,)).fetchone()
+            if existing:
+                if existing["driver_id"] != driver_id or existing["note_id"] != note_id:
+                    raise BusinessError("Identificador do início já utilizado")
+                return {"start_id": start_id, "started_at": existing["started_at"].isoformat(),
+                        "location_recorded": existing["latitude"] is not None, "duplicate": True}
+            # O bloqueio da NF serializa inícios concorrentes com IDs diferentes e
+            # também impede que uma baixa avance enquanto o início é criado.
+            note = db.execute("""SELECT n.status,t.status AS trip_status FROM app.notes n
+                JOIN app.trips t ON t.id=n.trip_id WHERE n.id=%s AND t.driver_id=%s FOR UPDATE OF n""",
+                (note_id, driver_id)).fetchone()
+            if not note or note["trip_status"] != "released" or note["status"] != "pending":
+                raise BusinessError("A entrega não está pendente nesta viagem")
+            active = db.execute("""SELECT s.* FROM app.delivery_starts s
+                LEFT JOIN app.delivery_events e ON e.start_id=s.id
+                WHERE s.note_id=%s AND s.driver_id=%s AND e.id IS NULL
+                ORDER BY s.recorded_at DESC LIMIT 1 FOR UPDATE OF s""", (note_id, driver_id)).fetchone()
+            if active:
+                return {"start_id": active["id"], "started_at": active["started_at"].isoformat(),
+                        "location_recorded": active["latitude"] is not None, "duplicate": True}
+            db.execute("""INSERT INTO app.delivery_starts(id,note_id,driver_id,started_at,
+                latitude,longitude,accuracy_m) VALUES(%s,%s,%s,%s,%s,%s,%s)""",
+                (start_id, note_id, driver_id, started, lat, lng, accuracy))
+            self._audit(db, f"driver:{driver_id}", "unloading_started", "note", note_id,
+                        {"start_id": start_id, "location_recorded": lat is not None})
+            return {"start_id": start_id, "started_at": started.isoformat(),
+                    "location_recorded": lat is not None, "duplicate": False}
+
+    def reopen_note(self, note_id, reason, *, actor):
+        reason = str(reason or "").strip()
+        if not 5 <= len(reason) <= 500:
+            raise BusinessError("Informe o motivo do estorno com 5 a 500 caracteres")
+        with self.connection() as db:
+            note = db.execute("""SELECT n.status,t.id AS trip_id,t.status AS trip_status,t.vehicle_id
+                FROM app.notes n JOIN app.trips t ON t.id=n.trip_id
+                WHERE n.id=%s FOR UPDATE OF n,t""", (note_id,)).fetchone()
+            if not note:
+                raise BusinessError("Nota não encontrada")
+            if note["status"] == "pending":
+                raise BusinessError("A nota já está pendente")
+            if note["trip_status"] == "closed":
+                other = db.execute("""SELECT 1 FROM app.trips WHERE vehicle_id=%s AND status='released'
+                    AND id<>%s FOR UPDATE""", (note["vehicle_id"], note["trip_id"])).fetchone()
+                if other:
+                    raise BusinessError("Existe outra viagem ativa para este veículo")
+                db.execute("UPDATE app.trips SET status='released',closed_at=NULL WHERE id=%s", (note["trip_id"],))
+                self._audit(db, actor, "reopened", "trip", note["trip_id"], {"reason": reason})
+            elif note["trip_status"] != "released":
+                raise BusinessError("Somente viagens liberadas ou encerradas podem receber estorno")
+            db.execute("UPDATE app.notes SET status='pending' WHERE id=%s", (note_id,))
+            self._audit(db, actor, "delivery_reverted", "note", note_id,
+                        {"from": note["status"], "to": "pending", "reason": reason})
+            return {"note_id": note_id, "trip_id": note["trip_id"], "status": "pending"}
 
     def evidence_access(self, event_id: str) -> dict | None:
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
@@ -492,13 +618,18 @@ class PostgresStore:
         return {"url": self.storage.signed_download_url(row["storage_path"], 300), "expires_in": 300}
 
     def record_delivery(self, driver_id, note_id, event_id, status, reason, photo_base64=None,
-                        arrival_time="", affected_item="", seller_name=""):
-        if status not in ("delivered", "partial", "refused", "occurrence"):
+                        arrival_time="", affected_item="", seller_name="", *, start_id="",
+                        completed_at="", occurrence_type="", observation="",
+                        expected_quantity="", received_quantity=""):
+        if status not in DELIVERY_STATUSES:
             raise BusinessError("Situação inválida")
         if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", event_id):
             raise BusinessError("Identificador da operação inválido")
-        if len(reason) > 1000 or (status != "delivered" and len(reason.strip()) < 3):
-            raise BusinessError("Informe um motivo válido para a ocorrência")
+        reason = str(reason or "").strip()
+        observation = str(observation or "").strip()
+        occurrence_type = str(occurrence_type or "").strip()
+        if len(reason) > 1000 or len(observation) > 1000:
+            raise BusinessError("Motivo ou observação muito longos")
         if arrival_time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", arrival_time):
             raise BusinessError("Horário de chegada inválido")
         if len(affected_item) > 500 or len(seller_name) > 100:
@@ -515,7 +646,7 @@ class PostgresStore:
             # transação aguarda a primeira e então encontra o evento existente.
             db.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (event_id,))
             existing = db.execute("""SELECT e.note_id,e.driver_id,e.status,e.reason,e.arrival_time,
-                e.affected_item,e.seller_name,e.created_at,n.number,n.recipient,n.city,n.seller,
+                e.affected_item,e.seller_name,e.observation,e.created_at,n.number,n.recipient,n.city,n.seller,
                 v.plate,d.name AS driver FROM app.delivery_events e
                 JOIN app.notes n ON n.id=e.note_id JOIN app.trips t ON t.id=n.trip_id
                 JOIN app.vehicles v ON v.id=t.vehicle_id JOIN app.drivers d ON d.id=e.driver_id
@@ -523,15 +654,17 @@ class PostgresStore:
             if existing:
                 if existing["note_id"] != note_id or existing["driver_id"] != driver_id:
                     raise BusinessError("Identificador de operação já utilizado")
+                existing_item = dict(existing)
                 message = occurrence_message(
-                    dict(existing), existing["status"], existing["reason"], existing["created_at"],
+                    existing_item, existing["status"], existing["reason"], existing["created_at"],
                     existing["arrival_time"], existing["affected_item"], existing["seller_name"],
+                    existing_item.get("observation", ""),
                 )
                 return {"event_id": event_id, "duplicate": True,
                         "status": existing["status"], "share_text": message}
             if status == "delivered" and photo is None:
                 raise BusinessError("Fotografia do canhoto é obrigatória para marcar entrega concluída")
-            note = db.execute("""SELECT n.status,n.number,n.recipient,n.city,n.seller,t.id AS trip_id,
+            note = db.execute("""SELECT n.status,n.number,n.recipient,n.city,n.seller,n.items,t.id AS trip_id,
                 t.status AS trip_status,v.plate,d.name AS driver FROM app.notes n
                 JOIN app.trips t ON t.id=n.trip_id JOIN app.vehicles v ON v.id=t.vehicle_id
                 JOIN app.drivers d ON d.id=t.driver_id
@@ -539,26 +672,100 @@ class PostgresStore:
                 (note_id, driver_id)).fetchone()
             if not note or note["trip_status"] != "released":
                 raise BusinessError("Nota não pertence à viagem ativa deste motorista")
+            if note["status"] != "pending":
+                raise BusinessError("Baixa já registrada; somente um administrador pode estornar")
+
+            start = None
+            if start_id:
+                if not re.fullmatch(r"[A-Za-z0-9-]{12,90}", str(start_id)):
+                    raise BusinessError("Identificador do início inválido")
+                start = db.execute("""SELECT id,started_at FROM app.delivery_starts
+                    WHERE id=%s AND note_id=%s AND driver_id=%s FOR UPDATE""",
+                    (start_id, note_id, driver_id)).fetchone()
+                if not start:
+                    raise BusinessError("Início do descarregamento não encontrado")
+                if db.execute("SELECT id FROM app.delivery_events WHERE start_id=%s", (start_id,)).fetchone():
+                    raise BusinessError("Este descarregamento já possui uma baixa")
+                arrival_time = start["started_at"].astimezone(timezone(timedelta(hours=-3))).strftime("%H:%M")
+            elif not arrival_time:
+                raise BusinessError("Inicie o descarregamento antes de concluir a entrega")
+
+            completed = client_timestamp(completed_at, "Horário de conclusão") \
+                if completed_at else datetime.now(timezone.utc)
+            if start:
+                duration_seconds = int((completed - start["started_at"]).total_seconds())
+                if duration_seconds < -60 or duration_seconds > 7 * 24 * 3600:
+                    raise BusinessError("Intervalo de descarregamento inválido")
+                duration_seconds = max(0, duration_seconds)
+            else:
+                duration_seconds = None
+
+            affected_description = ""
+            if status == "refused":
+                if reason not in REFUSAL_REASONS:
+                    raise BusinessError("Selecione Pedido Duplicado ou Sem Pedido para a recusa")
+                occurrence_type = ""
+            elif status == "occurrence":
+                if occurrence_type not in OCCURRENCE_TYPES:
+                    raise BusinessError("Selecione o tipo da ocorrência")
+                if occurrence_type == "general":
+                    if len(reason) < 3:
+                        raise BusinessError("Descreva o motivo da ocorrência")
+                else:
+                    items = note["items"] if isinstance(note["items"], list) else json.loads(note["items"] or "[]")
+                    item_index = re.fullmatch(r"__index_(\d+)", str(affected_item))
+                    if item_index:
+                        try:
+                            selected = items[int(item_index.group(1))]
+                        except IndexError:
+                            selected = None
+                    else:
+                        selected = next((item for item in items if str(item.get("codigo", "")) == str(affected_item)), None)
+                    if not selected:
+                        raise BusinessError("Selecione um item válido da NF-e")
+                    xml_quantity = normalized_quantity(selected.get("quantidade", ""), "Quantidade da NF-e")
+                    informed_expected = normalized_quantity(expected_quantity, "Quantidade da NF-e")
+                    received = normalized_quantity(received_quantity, "Quantidade física")
+                    if informed_expected != xml_quantity:
+                        raise BusinessError("A quantidade total não corresponde ao XML")
+                    if received >= xml_quantity:
+                        raise BusinessError("Na falta parcial, a quantidade física deve ser menor que a quantidade da NF-e")
+                    unit = str(selected.get("unidade", "")).strip()
+                    description = str(selected.get("descricao", "Produto")).strip()
+                    affected_description = (f"{description} • Previsto: {expected_quantity} {unit} • "
+                                            f"Recebido: {received_quantity} {unit}").strip()
+                    reason = "Falta parcial"
+            else:
+                occurrence_type = ""
+                reason = ""
+
             created_at = datetime.now(timezone.utc)
             db.execute("""INSERT INTO app.delivery_events(id,note_id,driver_id,status,reason,arrival_time,
-                affected_item,seller_name,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (event_id, note_id, driver_id, status, reason.strip(), arrival_time,
-                 affected_item.strip(), seller_name.strip(), created_at))
+                affected_item,seller_name,start_id,completed_at,occurrence_type,observation,
+                expected_quantity,received_quantity,created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (event_id, note_id, driver_id, status, reason, arrival_time,
+                 affected_description, seller_name.strip(), start_id or None, completed,
+                 occurrence_type, observation, str(expected_quantity or ""),
+                 str(received_quantity or ""), created_at))
             if photo is not None:
                 try:
                     uploaded = self.storage.upload(note["trip_id"], note_id, event_id, photo)
                 except StorageError as exc:
-                    raise BusinessError("Não foi possível salvar a foto; tente novamente") from exc
+                    raise ServiceUnavailable(
+                        "Não foi possível confirmar a foto agora; a baixa pode ser sincronizada novamente"
+                    ) from exc
                 uploaded_state["path"] = uploaded.path
                 db.execute("""INSERT INTO app.evidence(note_id,event_id,storage_path,mime,sha256)
                     VALUES (%s,%s,%s,%s,%s)""", (note_id, event_id, uploaded.path, uploaded.mime, uploaded.sha256))
             db.execute("UPDATE app.notes SET status=%s WHERE id=%s", (status, note_id))
             self._audit(db, f"driver:{driver_id}", "status_changed", "note", note_id,
-                        {"from": note["status"], "to": status, "reason": reason.strip(), "event_id": event_id,
-                         "arrival_time": arrival_time, "affected_item": affected_item.strip()})
+                        {"from": note["status"], "to": status, "reason": reason, "event_id": event_id,
+                         "start_id": start_id or None, "occurrence_type": occurrence_type})
             message = occurrence_message(dict(note), status, reason, created_at, arrival_time,
-                                         affected_item, seller_name)
-            return {"event_id": event_id, "duplicate": False, "status": status, "share_text": message}
+                                         affected_description, seller_name, observation)
+            return {"event_id": event_id, "duplicate": False, "status": status,
+                    "duration_seconds": duration_seconds, "share_text": message}
 
     def close_driver_trip(self, driver_id, trip_id):
         with self.connection() as db:
