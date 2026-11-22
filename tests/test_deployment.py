@@ -57,11 +57,16 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn('"start_url": "/motorista"', manifest)
         self.assertIn('url.pathname.startsWith("/api/")', worker)
         self.assertIn('navigator.serviceWorker.register("/sw.js"', driver)
+        self.assertIn("navigator.mediaDevices?.getUserMedia", driver)
+        self.assertIn('capture="environment"', driver)
+        self.assertIn('data-photo-source="gallery"', driver)
+        self.assertIn("selectedPhotos", driver)
         self.assertIn('"/assets/delivery-form.js"', worker)
         self.assertIn('"/assets/waze-official.png"', worker)
         self.assertIn('"/assets/google-maps-official.png"', worker)
         self.assertIn("validateInput", delivery_form)
         self.assertIn('name: "AES-GCM"', queue)
+        self.assertIn('id="cameraDialog"', (ROOT / "web" / "motorista.html").read_text(encoding="utf-8"))
 
     def test_public_branding_distinguishes_driver_and_operations_products(self):
         manifest = json.loads((ROOT / "web" / "manifest.webmanifest").read_text(encoding="utf-8"))

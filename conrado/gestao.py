@@ -28,7 +28,8 @@ MAX_BODY = 15_000_000
 ADMIN_LOGIN_BLOCK_SECONDS = 300
 DRIVER_LOGIN_BLOCK_SECONDS = 900
 BASE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
-            "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+            "connect-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; "
+            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
 # A torre de controle carrega o Leaflet (com SRI) e os blocos do mapa do OpenStreetMap.
 MAP_SCRIPT_ORIGIN = "https://unpkg.com"
 MAP_TILE_ORIGIN = "https://tile.openstreetmap.org"
