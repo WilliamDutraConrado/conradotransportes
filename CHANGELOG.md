@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0-rc.5 — 2026-11-21
+
+- Captura do canhoto passou a oferecer câmera integrada e seleção pela galeria, cobrindo navegadores que não implementam corretamente o atributo HTML `capture`.
+- A câmera traseira é solicitada por HTTPS, com encerramento imediato do vídeo ao fotografar ou cancelar e mensagem específica quando a permissão estiver bloqueada.
+- A foto escolhida recebe confirmação visual antes do envio e continua passando pela compactação JPEG, validação, fila offline cifrada e armazenamento privado já existentes.
+- Cache da PWA avançado para distribuir a correção aos aparelhos instalados.
+
 ## 0.10.0-rc.4 — 2026-11-21
 
 - Cabeçalho do aplicativo do motorista refinado em azul-marinho, com contraste e acabamento próprios para uso no celular.

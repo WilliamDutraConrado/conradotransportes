@@ -128,10 +128,12 @@ class APITest(unittest.TestCase):
         self.assertEqual(headers["X-Frame-Options"], "DENY")
         self.assertEqual(headers["Referrer-Policy"], "no-referrer")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+        self.assertIn("media-src 'self' blob:", headers["Content-Security-Policy"])
         self.assertRegex(headers["X-Request-ID"], r"^[a-f0-9]{16}$")
         self.assertNotIn("Python", headers["Server"])
         self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
+        self.assertIn("camera=(self)", headers["Permissions-Policy"])
         self.assertIn("geolocation=(self)", headers["Permissions-Policy"])
         self.assertIn("microphone=()", headers["Permissions-Policy"])
 

@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DutraLog">
   <meta name="application-name" content="DutraLog">
-  <meta name="app-version" content="0.10.0-rc.4">
+  <meta name="app-version" content="0.10.0-rc.5">
   <title>DutraLog • Motorista</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/dutralog-icon-192.png" type="image/png" sizes="192x192">
@@ -87,6 +87,19 @@
         <button class="ghost" value="cancel">Fechar</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="cameraDialog" aria-labelledby="cameraTitle">
+    <div class="card camera-card">
+      <span class="eyebrow">Foto do canhoto</span>
+      <h2 id="cameraTitle">Posicione o documento</h2>
+      <video id="cameraPreview" autoplay playsinline muted></video>
+      <p class="hint" id="cameraMessage">Use a câmera traseira e mantenha todo o canhoto visível.</p>
+      <div class="actions">
+        <button id="cameraCaptureButton" type="button" disabled>Fotografar canhoto</button>
+        <button id="cameraCancelButton" class="ghost" type="button">Cancelar</button>
+      </div>
+    </div>
   </dialog>
 
   <script src="/assets/delivery-form.js" defer></script>

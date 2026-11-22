@@ -140,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
             ("Strict-Transport-Security", "max-age=31536000"),
             ("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()"),
             ("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; "
-             "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
+             "connect-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; "
+             "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
         ))
         headers.update(extra_headers or {})
         for key, value in headers.items():

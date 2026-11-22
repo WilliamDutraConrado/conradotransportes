@@ -8,6 +8,10 @@ let installPrompt = null;
 let serverReachable = navigator.onLine;
 let reloadingForUpdate = false;
 let pendingEventIds = {};
+const selectedPhotos = new Map();
+const photoPreviewUrls = new Map();
+let activeCameraNoteId = null;
+let cameraStream = null;
 try { pendingEventIds = JSON.parse(sessionStorage.getItem("conradoPendingEvents") || "{}"); } catch (_) {}
 
 const $ = id => document.getElementById(id);
@@ -77,6 +81,129 @@ function nextPaint() {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
+function selectedPhoto(noteId) {
+  return selectedPhotos.get(Number(noteId));
+}
+
+function releasePhotoPreview(noteId) {
+  const key = Number(noteId);
+  const url = photoPreviewUrls.get(key);
+  if (url) URL.revokeObjectURL(url);
+  photoPreviewUrls.delete(key);
+}
+
+function clearSelectedPhoto(noteId) {
+  const key = Number(noteId);
+  releasePhotoPreview(key);
+  selectedPhotos.delete(key);
+}
+
+function setSelectedPhoto(noteId, file, sourceLabel = "Foto") {
+  const key = Number(noteId);
+  if (!file) return;
+  if (file.size > 20_000_000) {
+    notifyNote(key, "A fotografia ultrapassa 20 MB. Tire outra foto ou escolha uma imagem menor.", "error");
+    return;
+  }
+  if (file.type && !file.type.startsWith("image/")) {
+    notifyNote(key, "O arquivo selecionado não é uma fotografia válida.", "error");
+    return;
+  }
+  clearSelectedPhoto(key);
+  selectedPhotos.set(key, file);
+  const status = $(`photo-status-${key}`);
+  if (status) status.textContent = `${sourceLabel} pronta para envio • ${Math.max(1, Math.round(file.size / 1024))} KB`;
+  const preview = $(`photo-preview-${key}`);
+  if (preview) {
+    const url = URL.createObjectURL(file);
+    photoPreviewUrls.set(key, url);
+    preview.src = url;
+    preview.hidden = false;
+  }
+  notifyNote(key, "Foto anexada. Confira a imagem antes de concluir a baixa.", "success");
+}
+
+function stopCamera() {
+  if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+  cameraStream = null;
+  const video = $("cameraPreview");
+  if (video) video.srcObject = null;
+  $("cameraCaptureButton").disabled = true;
+  activeCameraNoteId = null;
+}
+
+function closeCamera() {
+  if ($("cameraDialog").open) $("cameraDialog").close();
+  stopCamera();
+}
+
+function cameraPermissionMessage(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    return "A câmera está bloqueada. Permita o acesso à câmera nas configurações do navegador ou use “Escolher foto”.";
+  }
+  if (error?.name === "NotFoundError" || error?.name === "OverconstrainedError") {
+    return "Nenhuma câmera compatível foi encontrada. Use “Escolher foto” para anexar o canhoto.";
+  }
+  return "Não foi possível abrir a câmera integrada. Tente a câmera do aparelho ou use “Escolher foto”.";
+}
+
+async function openCamera(noteId) {
+  const key = Number(noteId);
+  const nativeInput = $(`photo-camera-${key}`);
+  if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+    nativeInput?.click();
+    return;
+  }
+  activeCameraNoteId = key;
+  $("cameraMessage").textContent = "Solicitando acesso à câmera traseira…";
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    const video = $("cameraPreview");
+    video.srcObject = cameraStream;
+    $("cameraDialog").showModal();
+    await video.play();
+    $("cameraMessage").textContent = "Mantenha todo o canhoto visível e toque em “Fotografar canhoto”.";
+    if (video.videoWidth > 0) $("cameraCaptureButton").disabled = false;
+  } catch (error) {
+    const message = cameraPermissionMessage(error);
+    stopCamera();
+    notifyNote(key, message, "error");
+    if (error?.name !== "NotAllowedError" && error?.name !== "SecurityError") nativeInput?.click();
+  }
+}
+
+async function captureCameraPhoto() {
+  const noteId = activeCameraNoteId;
+  const video = $("cameraPreview");
+  if (noteId === null || !video.videoWidth || !video.videoHeight) {
+    $("cameraMessage").textContent = "A câmera ainda está iniciando. Aguarde um instante e tente novamente.";
+    return;
+  }
+  const canvas = document.createElement("canvas");
+  const scale = Math.min(1, 2200 / Math.max(video.videoWidth, video.videoHeight));
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    $("cameraMessage").textContent = "Não foi possível preparar a câmera. Use “Escolher foto”.";
+    return;
+  }
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await canvasBlob(canvas, .9);
+  if (!blob) {
+    $("cameraMessage").textContent = "A foto não foi gerada. Tente novamente ou use “Escolher foto”.";
+    return;
+  }
+  const file = typeof File === "function"
+    ? new File([blob], `canhoto-${noteId}-${Date.now()}.jpg`, { type: "image/jpeg" })
+    : blob;
+  closeCamera();
+  setSelectedPhoto(noteId, file, "Foto da câmera");
+}
+
 function updateNetworkStatus() {
   const online = navigator.onLine && serverReachable;
   $("networkStatus").className = `chip ${online ? "online" : "offline"}`;
@@ -144,8 +271,16 @@ async function decodePhoto(file) {
   try {
     const image = new Image();
     image.decoding = "async";
+    const loaded = new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+    });
     image.src = url;
-    await image.decode();
+    if (typeof image.decode === "function") {
+      try { await image.decode(); } catch (_) { await loaded; }
+    } else {
+      await loaded;
+    }
     return { source: image, release: () => URL.revokeObjectURL(url) };
   } catch (error) {
     URL.revokeObjectURL(url);
@@ -154,7 +289,16 @@ async function decodePhoto(file) {
 }
 
 function canvasBlob(canvas, quality) {
-  return new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
+  if (typeof canvas.toBlob === "function") {
+    return new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
+  }
+  try {
+    const encoded = canvas.toDataURL("image/jpeg", quality).split(",")[1];
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+    return Promise.resolve(new Blob([bytes], { type: "image/jpeg" }));
+  } catch (_) {
+    return Promise.resolve(null);
+  }
 }
 
 async function preparePhoto(file) {
@@ -303,8 +447,17 @@ function renderTrip() {
               </div>
             </div>
           </div>
-          <label>Foto do canhoto ou evidência<span class="required-marker" id="photo-required-${note.id}">${rule.photoRequired ? " • obrigatória" : " • opcional"}</span>
-            <input type="file" id="photo-${note.id}" accept="image/*" capture="environment"${rule.photoRequired ? " required" : ""} aria-describedby="requirements-${note.id}"></label>
+          <fieldset class="photo-field">
+            <legend>Foto do canhoto ou evidência<span class="required-marker" id="photo-required-${note.id}">${rule.photoRequired ? " • obrigatória" : " • opcional"}</span></legend>
+            <div class="photo-actions">
+              <button class="photo-action" type="button" data-action="open-camera" data-note-id="${note.id}">Abrir câmera</button>
+              <label class="button ghost photo-action" for="photo-gallery-${note.id}">Escolher foto</label>
+            </div>
+            <input class="photo-file-input" type="file" id="photo-camera-${note.id}" data-photo-source="camera" data-note-id="${note.id}" accept="image/*" capture="environment" aria-describedby="requirements-${note.id}">
+            <input class="photo-file-input" type="file" id="photo-gallery-${note.id}" data-photo-source="gallery" data-note-id="${note.id}" accept="image/jpeg,image/png,image/heic,image/heif,image/*" aria-describedby="requirements-${note.id}">
+            <span class="photo-status" id="photo-status-${note.id}">Nenhuma foto anexada.</span>
+            <img class="photo-preview" id="photo-preview-${note.id}" alt="Prévia da foto selecionada" hidden>
+          </fieldset>
           <div id="receiver-group-${note.id}">
             <label>Recebedor<span class="required-marker"> • primeiro nome</span>
               <input id="receiver-${note.id}" maxlength="40" autocomplete="off" placeholder="Primeiro nome" required></label>
@@ -346,6 +499,7 @@ function currentNote(noteId) {
 
 async function removeCompletedNote(noteId) {
   if (!currentTrip) return;
+  clearSelectedPhoto(noteId);
   currentTrip.notes = currentTrip.notes.filter(item => Number(item.id) !== Number(noteId));
   await cacheCurrentTrip();
   renderTrip();
@@ -353,11 +507,9 @@ async function removeCompletedNote(noteId) {
 
 function updateNoteRequirements(noteId) {
   const status = $(`status-${noteId}`);
-  const photo = $(`photo-${noteId}`);
-  if (!status || !photo) return;
+  if (!status) return;
   const rule = DutraDelivery.requirements(status.value);
   if (!rule) return;
-  photo.required = rule.photoRequired;
   $(`photo-required-${noteId}`).textContent = rule.photoRequired ? " • obrigatória" : " • opcional";
   $(`requirements-${noteId}`).textContent = rule.hint;
   $(`refusal-group-${noteId}`).hidden = status.value !== "refused";
@@ -500,7 +652,7 @@ async function saveDelivery(noteId) {
   try {
     const note = currentNote(noteId);
     if (!note) throw new Error("Esta entrega não está mais pendente.");
-    const file = $(`photo-${noteId}`).files[0];
+    const file = selectedPhoto(noteId);
     const values = DutraDelivery.validateInput({
       status: $(`status-${noteId}`).value,
       started: Boolean(note.start),
@@ -698,6 +850,7 @@ $("trip").addEventListener("click", async event => {
   }
   const button = event.target.closest("button[data-action]");
   if (!button) return;
+  if (button.dataset.action === "open-camera") await openCamera(Number(button.dataset.noteId));
   if (button.dataset.action === "start-note") await startDelivery(Number(button.dataset.noteId), button);
   if (button.dataset.action === "save-note") await saveDelivery(Number(button.dataset.noteId));
   if (button.dataset.action === "close-trip") await closeTrip(Number(button.dataset.tripId));
@@ -706,6 +859,13 @@ $("trip").addEventListener("click", async event => {
 
 $("trip").addEventListener("change", event => {
   const target = event.target;
+  if (target.matches("input[data-photo-source]")) {
+    const noteId = Number(target.dataset.noteId);
+    const file = target.files?.[0];
+    if (file) setSelectedPhoto(noteId, file, target.dataset.photoSource === "camera" ? "Foto da câmera" : "Foto escolhida");
+    target.value = "";
+    return;
+  }
   let noteId = null;
   if (target.matches('select[id^="status-"]')) noteId = Number(target.id.replace("status-", ""));
   if (target.matches('select[id^="occurrence-type-"]')) noteId = Number(target.id.replace("occurrence-type-", ""));
@@ -765,6 +925,13 @@ $("msg").addEventListener("click", async event => {
 });
 
 $("syncButton").addEventListener("click", () => syncNow());
+$("cameraPreview").addEventListener("loadedmetadata", () => {
+  if ($("cameraPreview").videoWidth > 0) $("cameraCaptureButton").disabled = false;
+});
+$("cameraCaptureButton").addEventListener("click", captureCameraPhoto);
+$("cameraCancelButton").addEventListener("click", closeCamera);
+$("cameraDialog").addEventListener("close", stopCamera);
+window.addEventListener("pagehide", stopCamera);
 $("installHelpButton").addEventListener("click", () => {
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
