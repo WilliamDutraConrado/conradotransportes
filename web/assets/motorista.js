@@ -144,23 +144,54 @@ function cameraPermissionMessage(error) {
   if (error?.name === "NotFoundError" || error?.name === "OverconstrainedError") {
     return "Nenhuma câmera compatível foi encontrada. Use “Escolher foto” para anexar o canhoto.";
   }
+  if (error?.name === "TimeoutError") {
+    return "A câmera demorou para responder. Abrindo a câmera nativa do aparelho…";
+  }
   return "Não foi possível abrir a câmera integrada. Tente a câmera do aparelho ou use “Escolher foto”.";
+}
+
+function preferNativeCamera() {
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+  const mobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+  return Boolean(coarsePointer || mobileDevice);
+}
+
+async function integratedCameraStream() {
+  const request = navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+  });
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error("A câmera não respondeu a tempo.");
+      error.name = "TimeoutError";
+      reject(error);
+    }, 7000);
+  });
+  try {
+    return await Promise.race([request, timeout]);
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      request.then(stream => stream.getTracks().forEach(track => track.stop())).catch(() => {});
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function openCamera(noteId) {
   const key = Number(noteId);
   const nativeInput = $(`photo-camera-${key}`);
-  if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+  if (preferNativeCamera() || !navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
     nativeInput?.click();
     return;
   }
   activeCameraNoteId = key;
   $("cameraMessage").textContent = "Solicitando acesso à câmera traseira…";
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-    });
+    cameraStream = await integratedCameraStream();
     const video = $("cameraPreview");
     video.srcObject = cameraStream;
     $("cameraDialog").showModal();

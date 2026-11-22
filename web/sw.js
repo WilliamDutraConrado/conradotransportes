@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.10.0-rc.5";
+const VERSION = "0.10.0-rc.6";
 const CACHE = `dutralog-driver-shell-${VERSION}`;
 const SHELL = [
   "/motorista",
