@@ -4,21 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#102a43">
-  <meta name="description" content="DutraTracking: visão operacional de viagens, entregas e ocorrências.">
-  <meta name="app-version" content="0.10.0-rc.4">
-  <title>DutraTracking • Operação</title>
+  <meta name="description" content="DutraTracking: torre de controle da operação DutraLog, com mapa ao vivo da frota, entregas e ocorrências.">
+  <meta name="app-version" content="0.11.0-rc.1">
+  <title>DutraTracking • Torre de controle</title>
   <link rel="icon" href="/assets/dutralog-icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/dutralog-apple-touch-icon.png">
   <link rel="preload" href="/assets/emblema-dutralog.webp" as="image" type="image/webp">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/tower.css">
 </head>
-<body>
+<body class="tower-app">
   <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
         <img class="brand-symbol" src="/assets/emblema-dutralog.webp" alt="" width="56" height="56">
-        <div class="brand-copy"><h1>DutraTracking</h1><p>Visão da operação DutraLog</p></div>
+        <div class="brand-copy"><h1>DutraTracking</h1><p>Torre de controle da operação DutraLog</p></div>
       </div>
       <div class="header-actions" id="sessionHeader" hidden>
         <span id="adminIdentity" class="tag"></span>
@@ -28,7 +31,7 @@
   </header>
 
   <main id="conteudo" tabindex="-1">
-    <section class="card" id="accessBox">
+    <section class="card login-card" id="accessBox">
       <span class="eyebrow">Acesso administrativo</span>
       <h2>Entrar no DutraTracking</h2>
       <form id="adminLoginForm" class="grid">
@@ -45,83 +48,174 @@
     </section>
 
     <div id="workspace" hidden>
-      <div class="status-strip">
-        <div class="status-group"><span id="networkStatus" class="chip"></span><span id="roleSummary" class="tag"></span></div>
-        <button class="secondary" id="refreshButton" type="button">Atualizar painel</button>
+      <div class="status-strip tower-strip">
+        <div class="status-group">
+          <span id="liveStatus" class="live-indicator" aria-live="polite">Ao vivo</span>
+          <span id="networkStatus" class="chip"></span>
+          <span id="roleSummary" class="tag"></span>
+          <span id="lastUpdate" class="hint"></span>
+        </div>
+        <div class="actions">
+          <label class="toggle"><input type="checkbox" id="autoRefresh" checked> Atualização automática (30 s)</label>
+          <button class="secondary" id="refreshButton" type="button">Atualizar agora</button>
+        </div>
       </div>
 
-      <section class="card">
-        <div class="card-header"><div><span class="eyebrow">Visão geral</span><h2>Resumo da operação</h2></div></div>
-        <div class="kpis" id="summary" aria-live="polite"></div>
-      </section>
+      <nav class="tower-tabs" aria-label="Seções do painel">
+        <button type="button" class="tab is-active" data-tab="tower" aria-current="page">Torre de controle</button>
+        <button type="button" class="tab" data-tab="trips">Viagens</button>
+        <button type="button" class="tab" data-tab="fleet">Frota</button>
+        <button type="button" class="tab" data-tab="reports">Relatórios</button>
+        <button type="button" class="tab admin-only" data-tab="admin" hidden>Usuários</button>
+      </nav>
 
-      <section class="card">
-        <div class="card-header"><div><span class="eyebrow">Relatórios</span><h2>Exportações administrativas</h2></div></div>
-        <p class="hint">Os arquivos CSV são gerados somente após autenticação e não ficam armazenados no servidor.</p>
-        <div class="actions">
-          <button id="exportOccurrences" type="button" class="secondary">Baixar ocorrências</button>
-          <button id="exportAudit" type="button" class="ghost audit-only">Baixar auditoria</button>
+      <!-- TORRE DE CONTROLE -->
+      <section class="panel is-active" data-panel="tower" aria-label="Torre de controle">
+        <div class="tower-kpis" id="towerKpis" aria-live="polite"></div>
+
+        <div class="tower-main">
+          <section class="card map-card" id="mapCard">
+            <div class="card-header">
+              <div><span class="eyebrow">Tempo real</span><h2>Mapa da frota</h2></div>
+              <div class="actions">
+                <button type="button" class="ghost compact" id="fitFleet">Centralizar frota</button>
+                <button type="button" class="ghost compact" id="toggleDeliveries" aria-pressed="true">Pontos de entrega</button>
+                <button type="button" class="ghost compact" id="expandMap" aria-pressed="false">Ampliar mapa</button>
+              </div>
+            </div>
+            <div class="map-frame">
+              <div id="towerMap" class="tower-map" role="region" aria-label="Mapa com a posição dos motoristas"></div>
+              <div id="mapNotice" class="map-notice" hidden></div>
+            </div>
+            <ul class="map-legend" aria-label="Legenda do mapa">
+              <li><span class="dot status-in_route"></span>Em rota</li>
+              <li><span class="dot status-in_service"></span>Em atendimento</li>
+              <li><span class="dot status-no_signal"></span>Sem sinal</li>
+              <li><span class="dot status-finished"></span>Finalizou</li>
+              <li><span class="dot point-delivered"></span>Entrega concluída</li>
+              <li><span class="dot point-issue"></span>Ocorrência</li>
+            </ul>
+          </section>
+
+          <aside class="card fleet-panel" aria-label="Motoristas">
+            <div class="card-header">
+              <div><span class="eyebrow">Frota agora</span><h2>Motoristas</h2></div>
+              <span class="tag" id="fleetCount"></span>
+            </div>
+            <input id="fleetSearch" type="search" placeholder="Buscar motorista ou placa" aria-label="Buscar motorista ou placa">
+            <div class="filter-chips" id="fleetFilters" role="group" aria-label="Filtrar por situação">
+              <button type="button" class="filter is-active" data-filter="all">Todos</button>
+              <button type="button" class="filter" data-filter="in_route">Em rota</button>
+              <button type="button" class="filter" data-filter="in_service">Atendimento</button>
+              <button type="button" class="filter" data-filter="no_signal">Sem sinal</button>
+              <button type="button" class="filter" data-filter="finished">Finalizados</button>
+            </div>
+            <div id="fleetList" class="fleet-list"></div>
+          </aside>
         </div>
-      </section>
 
-      <section class="card audit-only" id="diagnosticBox">
-        <div class="card-header"><div><span class="eyebrow">Saúde do sistema</span><h2>Diagnóstico sem dados pessoais</h2></div><button id="refreshDiagnostics" type="button" class="ghost">Atualizar diagnóstico</button></div>
-        <div id="diagnostics" class="diagnostics" aria-live="polite"></div>
-      </section>
+        <div class="tower-lower">
+          <section class="card">
+            <div class="card-header"><div><span class="eyebrow">Atenção</span><h2>Alertas da operação</h2></div><span class="tag" id="alertCount"></span></div>
+            <div id="towerAlerts" class="alert-list"></div>
+          </section>
+          <section class="card">
+            <div class="card-header"><div><span class="eyebrow">Hoje</span><h2>Linha do tempo</h2></div></div>
+            <ol id="towerTimeline" class="timeline"></ol>
+          </section>
+        </div>
 
-      <section class="card">
-        <div class="card-header"><div><span class="eyebrow">Desempenho</span><h2>Produtividade por motorista</h2></div></div>
-        <div id="productivity"></div>
-        <p class="hint">O índice considera somente NF-e entregues; ocorrências, recusas e parciais permanecem separadas.</p>
-      </section>
-
-      <div class="grid requires-write">
         <section class="card">
-          <span class="eyebrow">Frota</span><h2>Cadastrar motorista e veículo</h2>
-          <form id="driverForm" class="stack">
-            <label>Motorista<input name="name" maxlength="100" required></label>
-            <label>Placa<input name="plate" placeholder="ABC-1D23" required></label>
-            <label>Tipo de veículo<input name="vehicle_type" placeholder="3/4, HR ou TOCO" required></label>
-            <button>Cadastrar</button>
-          </form>
+          <div class="card-header"><div><span class="eyebrow">Desempenho de hoje</span><h2>Entregas diárias por motorista</h2></div></div>
+          <div id="dailyPerformance"></div>
+          <p class="hint">Contagem desde 00:00 (horário de Brasília). Baixas estornadas não entram no resultado; a taxa de sucesso considera entregas sobre o total de baixas do dia.</p>
         </section>
-        <section class="card">
-          <span class="eyebrow">Planejamento</span><h2>Criar viagem</h2>
-          <form id="tripForm" class="stack">
+      </section>
+
+      <!-- VIAGENS -->
+      <section class="panel" data-panel="trips" aria-label="Viagens">
+        <section class="card requires-write">
+          <div class="card-header"><div><span class="eyebrow">Planejamento</span><h2>Criar viagem</h2></div></div>
+          <form id="tripForm" class="inline-form">
             <label>Veículo<select name="vehicle_id" id="vehicle" required></select></label>
             <label>Identificação<input name="label" placeholder="Carga de segunda-feira" required></label>
             <button>Criar rascunho</button>
           </form>
           <p class="hint">Uma placa pode ter várias viagens, mas somente uma liberada de cada vez.</p>
         </section>
-      </div>
 
-      <section class="card">
-        <div class="card-header"><div><span class="eyebrow">Equipe</span><h2>Motoristas cadastrados</h2></div></div>
-        <div id="drivers"></div>
+        <section class="card">
+          <div class="card-header"><div><span class="eyebrow">Operação</span><h2>Viagens</h2></div></div>
+          <div id="trips"></div>
+          <p class="hint">Na importação, a placa encontrada no XML precisa coincidir com o veículo da viagem.</p>
+        </section>
+
+        <section class="card" id="detailBox" hidden>
+          <div class="card-header"><h2 id="detailTitle">Notas da viagem</h2><button type="button" class="ghost" id="closeDetail">Fechar</button></div>
+          <div id="detail"></div>
+        </section>
       </section>
 
-      <section class="card">
-        <div class="card-header"><div><span class="eyebrow">Operação</span><h2>Viagens</h2></div></div>
-        <div id="trips"></div>
-        <p class="hint">Na importação, a placa encontrada no XML precisa coincidir com o veículo da viagem.</p>
+      <!-- FROTA -->
+      <section class="panel" data-panel="fleet" aria-label="Frota">
+        <div class="grid">
+          <section class="card requires-write">
+            <span class="eyebrow">Frota</span><h2>Cadastrar motorista e veículo</h2>
+            <form id="driverForm" class="stack">
+              <label>Motorista<input name="name" maxlength="100" required></label>
+              <label>Placa<input name="plate" placeholder="ABC-1D23" required></label>
+              <label>Tipo de veículo<input name="vehicle_type" placeholder="3/4, HR ou TOCO" required></label>
+              <button>Cadastrar</button>
+            </form>
+          </section>
+          <section class="card">
+            <div class="card-header"><div><span class="eyebrow">Equipe</span><h2>Motoristas cadastrados</h2></div></div>
+            <div id="drivers"></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <div class="card-header"><div><span class="eyebrow">Histórico acumulado</span><h2>Produtividade por motorista</h2></div></div>
+          <div id="productivity"></div>
+          <p class="hint">O índice considera somente NF-e entregues; ocorrências, recusas e parciais permanecem separadas.</p>
+        </section>
       </section>
 
-      <section class="card" id="detailBox" hidden>
-        <div class="card-header"><h2 id="detailTitle">Notas da viagem</h2><button type="button" class="ghost" id="closeDetail">Fechar</button></div>
-        <div id="detail"></div>
+      <!-- RELATÓRIOS -->
+      <section class="panel" data-panel="reports" aria-label="Relatórios">
+        <section class="card">
+          <div class="card-header"><div><span class="eyebrow">Visão acumulada</span><h2>Resumo da operação</h2></div></div>
+          <div class="kpis" id="summary" aria-live="polite"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-header"><div><span class="eyebrow">Relatórios</span><h2>Exportações administrativas</h2></div></div>
+          <p class="hint">Os arquivos CSV são gerados somente após autenticação e não ficam armazenados no servidor.</p>
+          <div class="actions">
+            <button id="exportOccurrences" type="button" class="secondary">Baixar ocorrências</button>
+            <button id="exportAudit" type="button" class="ghost audit-only">Baixar auditoria</button>
+          </div>
+        </section>
+
+        <section class="card audit-only" id="diagnosticBox">
+          <div class="card-header"><div><span class="eyebrow">Saúde do sistema</span><h2>Diagnóstico sem dados pessoais</h2></div><button id="refreshDiagnostics" type="button" class="ghost">Atualizar diagnóstico</button></div>
+          <div id="diagnostics" class="diagnostics" aria-live="polite"></div>
+        </section>
       </section>
 
-      <section class="card admin-only" id="adminManagement" hidden>
-        <span class="eyebrow">Segurança</span><h2>Usuários administrativos</h2>
-        <form id="adminUserForm" class="grid">
-          <label>Usuário<input name="username" minlength="3" maxlength="50" required></label>
-          <label>Senha inicial<input name="password" type="password" minlength="14" autocomplete="new-password" required></label>
-          <label>Perfil<select name="role"><option value="operator">Operador</option><option value="auditor">Auditor</option><option value="admin">Administrador</option></select></label>
-          <div class="actions"><button>Criar ou redefinir</button></div>
-        </form>
-        <p class="hint">O administrador gerencia usuários e senhas; o operador trabalha com viagens; o auditor tem acesso somente para consulta.</p>
-        <div id="adminUsers"></div>
+      <!-- USUÁRIOS -->
+      <section class="panel" data-panel="admin" aria-label="Usuários administrativos">
+        <section class="card admin-only" id="adminManagement" hidden>
+          <span class="eyebrow">Segurança</span><h2>Usuários administrativos</h2>
+          <form id="adminUserForm" class="grid">
+            <label>Usuário<input name="username" minlength="3" maxlength="50" required></label>
+            <label>Senha inicial<input name="password" type="password" minlength="14" autocomplete="new-password" required></label>
+            <label>Perfil<select name="role"><option value="operator">Operador</option><option value="auditor">Auditor</option><option value="admin">Administrador</option></select></label>
+            <div class="actions"><button>Criar ou redefinir</button></div>
+          </form>
+          <p class="hint">O administrador gerencia usuários e senhas; o operador trabalha com viagens; o auditor tem acesso somente para consulta.</p>
+          <div id="adminUsers"></div>
+        </section>
       </section>
     </div>
 
@@ -139,6 +233,8 @@
     </form>
   </dialog>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
   <script src="/assets/gestao.js" defer></script>
 </body>
 </html>

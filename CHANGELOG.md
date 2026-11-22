@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0-rc.1 — 2026-11-21
+
+### Torre de controle (DutraTracking)
+
+- `/gestao` reorganizada como torre de controle, com abas para Torre, Viagens, Frota, Relatórios e Usuários.
+- Indicadores do dia (desde 00:00 de Brasília): motoristas em rota, com sinal ao vivo, em atendimento, entregas, ocorrências, pendentes, taxa de sucesso e tempo médio no cliente.
+- Mapa ao vivo (Leaflet + OpenStreetMap) com a posição de cada motorista, situação por cor, pontos de entrega do dia, precisão do GPS e trajeto do dia ao selecionar um motorista.
+- Painel da frota com busca e filtros, alertas (sem sinal há mais de 10 min, atendimento acima de 40 min, recusas e ocorrências), linha do tempo e tabela de desempenho diário por motorista.
+- Atualização automática a cada 30 segundos, pausada quando a aba fica em segundo plano.
+
+### Aplicativo do motorista
+
+- Compartilhamento da localização somente enquanto há viagem liberada e sessão ativa: no máximo uma posição por minuto (ou após 150 m), com indicador visível na tela.
+
+### Servidor e banco
+
+- Novos endpoints `POST /api/driver/position`, `GET /api/admin/tower` e `GET /api/admin/tower/drivers/{id}/trail`.
+- Migração aditiva `008_driver_positions` (RLS, sem acesso anon/authenticated). Histórico de posições limitado a 30 dias; sem a migração, a torre funciona com as localizações pontuais das entregas.
+- CSP da `/gestao` libera apenas o Leaflet em `unpkg.com` (com SRI) e os blocos de `tile.openstreetmap.org`; as demais rotas mantêm a política anterior.
+
 ## 0.10.0-rc.4 — 2026-11-21
 
 - Cabeçalho do aplicativo do motorista refinado em azul-marinho, com contraste e acabamento próprios para uso no celular.

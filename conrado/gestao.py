@@ -20,14 +20,24 @@ from conrado.importer import NFeError, parse_nfe
 from conrado.maintenance import MaintenanceWorker, retention_settings
 from conrado.painel import DEFAULT_REGEX
 from conrado.store import BusinessError, ServiceUnavailable, Store
+from conrado.tower import build_tower, day_start, downsample
 from conrado.version import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_BODY = 15_000_000
 ADMIN_LOGIN_BLOCK_SECONDS = 300
 DRIVER_LOGIN_BLOCK_SECONDS = 900
+BASE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
+            "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+# A torre de controle carrega o Leaflet (com SRI) e os blocos do mapa do OpenStreetMap.
+MAP_SCRIPT_ORIGIN = "https://unpkg.com"
+MAP_TILE_ORIGIN = "https://tile.openstreetmap.org"
+TOWER_CSP = (f"default-src 'self'; script-src 'self' {MAP_SCRIPT_ORIGIN}; style-src 'self' {MAP_SCRIPT_ORIGIN}; "
+             f"connect-src 'self'; img-src 'self' blob: data: {MAP_TILE_ORIGIN}; object-src 'none'; "
+             "base-uri 'none'; frame-ancestors 'none'")
 STATIC_ROUTES = {
     "/assets/app.css": ("web/assets/app.css", "text/css; charset=utf-8", "no-cache"),
+    "/assets/tower.css": ("web/assets/tower.css", "text/css; charset=utf-8", "no-cache"),
     "/assets/gestao.js": ("web/assets/gestao.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/motorista.js": ("web/assets/motorista.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "no-cache"),
@@ -139,8 +149,7 @@ class Handler(BaseHTTPRequestHandler):
             ("Cross-Origin-Resource-Policy", "same-origin"),
             ("Strict-Transport-Security", "max-age=31536000"),
             ("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()"),
-            ("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; "
-             "connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
+            ("Content-Security-Policy", BASE_CSP),
         ))
         headers.update(extra_headers or {})
         for key, value in headers.items():
@@ -219,11 +228,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/version.json":
             self._json(200, {"version": VERSION}, {"Cache-Control": "no-cache"})
             return
-        if self.path == "/":
-            self._respond(200, (ROOT / "web" / "gestao.html").read_bytes(), "text/html; charset=utf-8")
-            return
-        if self.path == "/gestao":
-            self._respond(200, (ROOT / "web" / "gestao.html").read_bytes(), "text/html; charset=utf-8")
+        if self.path in ("/", "/gestao"):
+            self._respond(200, (ROOT / "web" / "gestao.html").read_bytes(), "text/html; charset=utf-8",
+                          {"Content-Security-Policy": TOWER_CSP})
             return
         if self.path == "/motorista":
             self._respond(200, (ROOT / "web" / "motorista.html").read_bytes(), "text/html; charset=utf-8")
@@ -290,6 +297,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, self.server.db.summary())
         elif self.path == "/api/productivity":
             self._json(200, self.server.db.driver_productivity())
+        elif self.path == "/api/admin/tower":
+            self._json(200, build_tower(self.server.db.tower_raw(day_start())))
+        elif (match := re.fullmatch(r"/api/admin/tower/drivers/(\d+)/trail", self.path)):
+            points = self.server.db.driver_trail(int(match.group(1)), day_start())
+            self._json(200, {"driver_id": int(match.group(1)), "points": downsample(points)})
         elif (match := re.fullmatch(r"/api/evidence/([A-Za-z0-9-]{12,90})/access", self.path)):
             access = self.server.db.evidence_access(match.group(1))
             if access is None:
@@ -371,6 +383,16 @@ class Handler(BaseHTTPRequestHandler):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 self.server.db.revoke_driver_session(token)
                 result = {"logged_out": True}
+            elif self.path == "/api/driver/position":
+                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+                driver_id = self.server.db.driver_by_token(token)
+                if not driver_id:
+                    self._json(401, {"erro": "Sessão do motorista inválida"})
+                    return
+                result = self.server.db.record_position(
+                    driver_id, body.get("latitude"), body.get("longitude"), body.get("accuracy_m"),
+                    body.get("speed"), body.get("heading"), body.get("recorded_at", ""),
+                )
             elif (match := re.fullmatch(r"/api/driver/notes/(\d+)/start", self.path)):
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 driver_id = self.server.db.driver_by_token(token)
@@ -496,6 +518,7 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         path = re.sub(r"/api/(driver/notes|driver/trips|drivers|trips|notes|admin/users)/[^/]+", r"/api/\1/{id}", path)
         path = re.sub(r"/api/evidence/[^/]+/access", "/api/evidence/{event}/access", path)
+        path = re.sub(r"/api/admin/tower/drivers/[^/]+/trail", "/api/admin/tower/drivers/{id}/trail", path)
         print(json.dumps({
             "level": "info", "event": "http_request", "request_id": self.request_id,
             "method": self.command, "route": path, "status": status,

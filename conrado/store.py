@@ -18,6 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from conrado.supabase_storage import StorageError, detect_image
+from conrado.tower import POSITION_MIN_INTERVAL_SECONDS, POSITION_RETENTION_DAYS
 
 
 class BusinessError(ValueError):
@@ -113,6 +114,36 @@ def normalized_location(latitude, longitude, accuracy_m) -> tuple[float | None, 
     if not -90 <= lat <= 90 or not -180 <= lng <= 180 or not 0 <= accuracy <= 10_000:
         raise BusinessError("Localização fora dos limites válidos")
     return round(lat, 6), round(lng, 6), round(accuracy, 1)
+
+
+def normalized_motion(speed_mps, heading) -> tuple[float | None, float | None]:
+    """Velocidade (m/s do navegador, gravada em km/h) e rumo opcionais do GPS."""
+    speed_kmh = None
+    if speed_mps not in (None, ""):
+        try:
+            speed_kmh = round(float(speed_mps) * 3.6, 1)
+        except (TypeError, ValueError) as exc:
+            raise BusinessError("Velocidade inválida") from exc
+        if not 0 <= speed_kmh <= 300:
+            raise BusinessError("Velocidade fora dos limites válidos")
+    direction = None
+    if heading not in (None, ""):
+        try:
+            direction = round(float(heading), 1)
+        except (TypeError, ValueError) as exc:
+            raise BusinessError("Rumo inválido") from exc
+        if direction != direction or not 0 <= direction <= 360:
+            direction = None
+    return speed_kmh, direction
+
+
+def validated_position(latitude, longitude, accuracy_m, speed_mps, heading, recorded_at):
+    lat, lng, accuracy = normalized_location(latitude, longitude, accuracy_m)
+    if lat is None:
+        raise BusinessError("Localização obrigatória")
+    speed_kmh, direction = normalized_motion(speed_mps, heading)
+    moment = client_timestamp(recorded_at, "Horário da localização")
+    return lat, lng, accuracy, speed_kmh, direction, moment
 
 
 def normalized_quantity(value: str, label: str) -> Decimal:
@@ -282,6 +313,17 @@ class Store:
                 mime TEXT NOT NULL, sha256 TEXT NOT NULL,
                 content BLOB NOT NULL, created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS driver_positions (
+                id INTEGER PRIMARY KEY, driver_id INTEGER NOT NULL REFERENCES drivers(id),
+                trip_id INTEGER REFERENCES trips(id),
+                latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+                longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+                accuracy_m REAL NOT NULL CHECK (accuracy_m BETWEEN 0 AND 10000),
+                speed_kmh REAL, heading REAL,
+                recorded_at TEXT NOT NULL, received_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS positions_by_driver ON driver_positions(driver_id, received_at);
+            CREATE INDEX IF NOT EXISTS positions_by_received_at ON driver_positions(received_at);
             CREATE INDEX IF NOT EXISTS audit_by_happened_at ON audit(happened_at);
             CREATE INDEX IF NOT EXISTS evidence_by_created_at ON evidence(created_at);
             CREATE INDEX IF NOT EXISTS events_by_created_at ON delivery_events(created_at);
@@ -1040,3 +1082,68 @@ class Store:
             db.execute("UPDATE trips SET status='closed',closed_at=? WHERE id=?", (now(), trip_id))
             self._audit(db, f"driver:{driver_id}", "closed", "trip", trip_id, {})
             return {"trip_id": trip_id, "status": "closed", "duplicate": False}
+
+    def record_position(self, driver_id: int, latitude, longitude, accuracy_m, speed_mps=None,
+                        heading=None, recorded_at: str = "") -> dict:
+        """Grava a posição do motorista somente enquanto há viagem em rota."""
+        lat, lng, accuracy, speed_kmh, direction, moment = validated_position(
+            latitude, longitude, accuracy_m, speed_mps, heading, recorded_at)
+        received = datetime.now(timezone.utc)
+        with self.connection() as db:
+            trip = db.execute("SELECT id FROM trips WHERE driver_id=? AND status='released' ORDER BY id LIMIT 1",
+                              (driver_id,)).fetchone()
+            if not trip:
+                return {"recorded": False, "reason": "no_active_trip"}
+            last = db.execute("SELECT MAX(received_at) FROM driver_positions WHERE driver_id=?",
+                              (driver_id,)).fetchone()[0]
+            if last and (received - datetime.fromisoformat(last)).total_seconds() < POSITION_MIN_INTERVAL_SECONDS:
+                return {"recorded": False, "reason": "throttled"}
+            db.execute("""INSERT INTO driver_positions(driver_id,trip_id,latitude,longitude,accuracy_m,
+                speed_kmh,heading,recorded_at,received_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (driver_id, trip["id"], lat, lng, accuracy, speed_kmh, direction,
+                 moment.isoformat(), received.isoformat()))
+            cutoff = (received - timedelta(days=POSITION_RETENTION_DAYS)).isoformat()
+            db.execute("DELETE FROM driver_positions WHERE received_at<?", (cutoff,))
+            return {"recorded": True}
+
+    def tower_raw(self, since: datetime) -> dict:
+        """Dados brutos do dia para a torre de controle (ver conrado.tower)."""
+        since_iso = since.astimezone(timezone.utc).isoformat()
+        with self.connection() as db:
+            drivers = db.execute("""SELECT d.id AS driver_id,d.name,v.plate,v.vehicle_type
+                FROM drivers d JOIN vehicles v ON v.driver_id=d.id
+                WHERE d.active=1 AND v.active=1 ORDER BY d.name,v.plate""").fetchall()
+            trips = db.execute("""SELECT t.id,t.driver_id,t.label,t.status,t.released_at,t.closed_at,
+                COUNT(n.id) AS notes,
+                SUM(CASE WHEN n.status='pending' THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN n.status='delivered' THEN 1 ELSE 0 END) AS delivered,
+                SUM(CASE WHEN n.status IN ('partial','refused','occurrence') THEN 1 ELSE 0 END) AS issues
+                FROM trips t LEFT JOIN notes n ON n.trip_id=t.id
+                WHERE t.status='released' OR (t.status='closed' AND t.closed_at>=?)
+                GROUP BY t.id ORDER BY t.id""", (since_iso,)).fetchall()
+            events = db.execute("""SELECT e.id,e.driver_id,e.note_id,e.status,e.created_at,e.completed_at,
+                s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                n.status AS note_status,n.number,n.recipient,n.city,n.trip_id
+                FROM delivery_events e JOIN notes n ON n.id=e.note_id
+                LEFT JOIN delivery_starts s ON s.id=e.start_id
+                WHERE e.created_at>=? ORDER BY e.created_at,e.id""", (since_iso,)).fetchall()
+            starts = db.execute("""SELECT s.driver_id,s.note_id,s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                n.number,n.recipient,n.city
+                FROM delivery_starts s LEFT JOIN delivery_events e ON e.start_id=s.id
+                JOIN notes n ON n.id=s.note_id JOIN trips t ON t.id=n.trip_id
+                WHERE e.id IS NULL AND n.status='pending' AND t.status='released'""").fetchall()
+            positions = db.execute("""SELECT p.driver_id,p.latitude,p.longitude,p.accuracy_m,p.speed_kmh,
+                p.heading,p.recorded_at FROM driver_positions p
+                WHERE p.id IN (SELECT MAX(id) FROM driver_positions WHERE received_at>=?
+                               GROUP BY driver_id)""", (since_iso,)).fetchall()
+            return {key: [dict(row) for row in rows] for key, rows in (
+                ("drivers", drivers), ("trips", trips), ("events", events),
+                ("active_starts", starts), ("positions", positions))}
+
+    def driver_trail(self, driver_id: int, since: datetime) -> list[dict]:
+        since_iso = since.astimezone(timezone.utc).isoformat()
+        with self.connection() as db:
+            rows = db.execute("""SELECT latitude,longitude,accuracy_m,speed_kmh,recorded_at
+                FROM driver_positions WHERE driver_id=? AND received_at>=?
+                ORDER BY received_at,id""", (driver_id, since_iso)).fetchall()
+            return [dict(row) for row in rows]

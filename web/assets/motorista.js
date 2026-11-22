@@ -232,6 +232,7 @@ async function cacheCurrentTrip() {
 }
 
 function renderTrip() {
+  updateLocationSharing();
   if (!currentTrip) {
     $("trip").innerHTML = '<section class="card empty">Nenhuma viagem liberada para você neste momento.</section>';
     $("trip").hidden = false;
@@ -410,6 +411,97 @@ function currentPosition() {
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
   ));
 }
+
+// Torre de controle: a posição é compartilhada somente com viagem liberada e
+// sessão ativa. Envio no máximo a cada minuto (ou antes, se o veículo andou
+// mais de 150 m), sem fila offline: posição antiga não tem valor operacional.
+const LOCATION_INTERVAL_MS = 60000;
+const LOCATION_MIN_INTERVAL_MS = 20000;
+const LOCATION_MIN_DISTANCE_M = 150;
+let locationWatch = null;
+let lastFix = null;
+let lastSent = null;
+let sendingLocation = false;
+let locationTimer = null;
+
+function setGpsStatus(text, state) {
+  const element = $("gpsStatus");
+  if (!element) return;
+  element.hidden = !text;
+  element.textContent = text || "";
+  element.className = `tag gps-${state || "idle"}`;
+}
+
+function distanceMeters(left, right) {
+  const radius = 6371000;
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(right.latitude - left.latitude);
+  const dLng = rad(right.longitude - left.longitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(left.latitude)) * Math.cos(rad(right.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(a));
+}
+
+async function sendLocation(force = false) {
+  if (!lastFix || sendingLocation || !session || !currentTrip || !navigator.onLine) return;
+  const elapsed = lastSent ? Date.now() - lastSent.at : Infinity;
+  const moved = lastSent ? distanceMeters(lastSent, lastFix) : Infinity;
+  if (!force && elapsed < LOCATION_INTERVAL_MS && !(elapsed >= LOCATION_MIN_INTERVAL_MS && moved >= LOCATION_MIN_DISTANCE_M)) return;
+  sendingLocation = true;
+  try {
+    const result = await request("/api/driver/position", lastFix, 15000);
+    if (result.recorded || result.reason === "throttled") {
+      lastSent = { ...lastFix, at: Date.now() };
+      setGpsStatus("Localização compartilhada", "on");
+    } else if (result.reason === "no_active_trip") {
+      setGpsStatus("", "idle");
+    }
+  } catch (_) {
+    // Falha de rede: a próxima leitura do GPS tenta de novo.
+  } finally {
+    sendingLocation = false;
+  }
+}
+
+function startLocationSharing() {
+  if (locationWatch !== null) return;
+  if (!navigator.geolocation) { setGpsStatus("GPS indisponível", "off"); return; }
+  setGpsStatus("Ativando localização", "idle");
+  locationWatch = navigator.geolocation.watchPosition(position => {
+    lastFix = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy_m: Math.min(10000, position.coords.accuracy),
+      speed: Number.isFinite(position.coords.speed) && position.coords.speed >= 0 ? position.coords.speed : null,
+      heading: Number.isFinite(position.coords.heading) ? position.coords.heading : null,
+      recorded_at: new Date(position.timestamp || Date.now()).toISOString()
+    };
+    sendLocation();
+  }, error => {
+    if (error.code === error.PERMISSION_DENIED) {
+      setGpsStatus("Localização bloqueada", "off");
+      stopLocationSharing(false);
+    }
+  }, { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 });
+  locationTimer = setInterval(() => sendLocation(), LOCATION_INTERVAL_MS);
+}
+
+function stopLocationSharing(clearStatus = true) {
+  if (locationWatch !== null && navigator.geolocation) navigator.geolocation.clearWatch(locationWatch);
+  locationWatch = null;
+  if (locationTimer) clearInterval(locationTimer);
+  locationTimer = null;
+  lastFix = null;
+  if (clearStatus) setGpsStatus("", "idle");
+}
+
+function updateLocationSharing() {
+  if (session && currentTrip) startLocationSharing();
+  else stopLocationSharing();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") sendLocation(true);
+});
 
 async function queueStart(noteId, note, body) {
   await ConradoOffline.queueOperation({
@@ -648,6 +740,7 @@ async function logout() {
   if (queued.length && !confirm("Há operações pendentes. Elas permanecerão no aparelho e exigirão novo login para sincronizar. Sair mesmo assim?")) return;
   try { if (session && navigator.onLine) await request("/api/driver/logout", {}); } catch (_) {}
   setSession("");
+  stopLocationSharing();
   $("trip").hidden = true;
   $("loginBox").hidden = false;
   notify("Sessão encerrada.");

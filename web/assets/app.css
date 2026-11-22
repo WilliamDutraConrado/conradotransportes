@@ -173,6 +173,8 @@ input[type="file"] { padding: 9px; background: #f8fafc; }
 .tag.role-admin { background: #e5eff8; color: #164f72; }
 .tag.role-operator { background: #e8f6ed; color: #23613c; }
 .tag.role-auditor { background: #f2eafb; color: #68418c; }
+.tag.gps-on { background: #def5e7; color: #17633b; }
+.tag.gps-off { background: #ffe8e8; color: #8b2828; }
 
 .update-banner {
   display: flex;

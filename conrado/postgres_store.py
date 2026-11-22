@@ -20,7 +20,9 @@ from conrado.store import (
     BusinessError, DELIVERY_STATUSES, OCCURRENCE_TYPES, REFUSAL_REASONS, ServiceUnavailable, client_timestamp,
     invoice_sort_key, login_limit_keys, normalize_admin_role, normalize_admin_username,
     normalize_driver_pin, normalize_plate, normalized_location, normalized_quantity, occurrence_message,
+    validated_position,
 )
+from conrado.tower import POSITION_MIN_INTERVAL_SECONDS, POSITION_RETENTION_DAYS
 from conrado.supabase_storage import StorageError, detect_image
 
 
@@ -782,3 +784,87 @@ class PostgresStore:
             db.execute("UPDATE app.trips SET status='closed',closed_at=now() WHERE id=%s", (trip_id,))
             self._audit(db, f"driver:{driver_id}", "closed", "trip", trip_id, {})
             return {"trip_id": trip_id, "status": "closed", "duplicate": False}
+
+    @staticmethod
+    def _positions_ready(db) -> bool:
+        """A migração 008 pode ainda não ter sido aplicada; a torre segue sem GPS contínuo."""
+        return db.execute("SELECT to_regclass('app.driver_positions') IS NOT NULL AS ready").fetchone()["ready"]
+
+    @staticmethod
+    def _plain(rows) -> list[dict]:
+        result = []
+        for row in rows:
+            item = {}
+            for key, value in dict(row).items():
+                if isinstance(value, datetime):
+                    value = value.isoformat()
+                elif value is not None and type(value).__name__ == "Decimal":
+                    value = float(value)
+                item[key] = value
+            result.append(item)
+        return result
+
+    def record_position(self, driver_id, latitude, longitude, accuracy_m, speed_mps=None,
+                        heading=None, recorded_at=""):
+        lat, lng, accuracy, speed_kmh, direction, moment = validated_position(
+            latitude, longitude, accuracy_m, speed_mps, heading, recorded_at)
+        with self.connection() as db:
+            if not self._positions_ready(db):
+                return {"recorded": False, "reason": "unavailable"}
+            trip = db.execute("""SELECT id FROM app.trips WHERE driver_id=%s AND status='released'
+                ORDER BY id LIMIT 1""", (driver_id,)).fetchone()
+            if not trip:
+                return {"recorded": False, "reason": "no_active_trip"}
+            recent = db.execute("""SELECT 1 FROM app.driver_positions WHERE driver_id=%s
+                AND received_at > now() - make_interval(secs => %s) LIMIT 1""",
+                (driver_id, POSITION_MIN_INTERVAL_SECONDS)).fetchone()
+            if recent:
+                return {"recorded": False, "reason": "throttled"}
+            db.execute("""INSERT INTO app.driver_positions(driver_id,trip_id,latitude,longitude,accuracy_m,
+                speed_kmh,heading,recorded_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (driver_id, trip["id"], lat, lng, accuracy, speed_kmh, direction, moment))
+            db.execute("DELETE FROM app.driver_positions WHERE received_at < now() - make_interval(days => %s)",
+                       (POSITION_RETENTION_DAYS,))
+            return {"recorded": True}
+
+    def tower_raw(self, since):
+        with self.connection() as db:
+            drivers = db.execute("""SELECT d.id AS driver_id,d.name,v.plate,v.vehicle_type
+                FROM app.drivers d JOIN app.vehicles v ON v.driver_id=d.id
+                WHERE d.active=true AND v.active=true ORDER BY d.name,v.plate""").fetchall()
+            trips = db.execute("""SELECT t.id,t.driver_id,t.label,t.status,t.released_at,t.closed_at,
+                COUNT(n.id) AS notes,
+                COALESCE(SUM(CASE WHEN n.status='pending' THEN 1 ELSE 0 END),0) AS pending,
+                COALESCE(SUM(CASE WHEN n.status='delivered' THEN 1 ELSE 0 END),0) AS delivered,
+                COALESCE(SUM(CASE WHEN n.status IN ('partial','refused','occurrence') THEN 1 ELSE 0 END),0) AS issues
+                FROM app.trips t LEFT JOIN app.notes n ON n.trip_id=t.id
+                WHERE t.status='released' OR (t.status='closed' AND t.closed_at>=%s)
+                GROUP BY t.id ORDER BY t.id""", (since,)).fetchall()
+            events = db.execute("""SELECT e.id,e.driver_id,e.note_id,e.status,e.created_at,e.completed_at,
+                s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                n.status AS note_status,n.number,n.recipient,n.city,n.trip_id
+                FROM app.delivery_events e JOIN app.notes n ON n.id=e.note_id
+                LEFT JOIN app.delivery_starts s ON s.id=e.start_id
+                WHERE e.created_at>=%s ORDER BY e.created_at,e.id""", (since,)).fetchall()
+            starts = db.execute("""SELECT s.driver_id,s.note_id,s.started_at,s.latitude,s.longitude,s.accuracy_m,
+                n.number,n.recipient,n.city
+                FROM app.delivery_starts s LEFT JOIN app.delivery_events e ON e.start_id=s.id
+                JOIN app.notes n ON n.id=s.note_id JOIN app.trips t ON t.id=n.trip_id
+                WHERE e.id IS NULL AND n.status='pending' AND t.status='released'""").fetchall()
+            positions = []
+            if self._positions_ready(db):
+                positions = db.execute("""SELECT DISTINCT ON (driver_id) driver_id,latitude,longitude,
+                    accuracy_m,speed_kmh,heading,recorded_at FROM app.driver_positions
+                    WHERE received_at>=%s ORDER BY driver_id,received_at DESC,id DESC""", (since,)).fetchall()
+            return {key: self._plain(rows) for key, rows in (
+                ("drivers", drivers), ("trips", trips), ("events", events),
+                ("active_starts", starts), ("positions", positions))}
+
+    def driver_trail(self, driver_id, since):
+        with self.connection() as db:
+            if not self._positions_ready(db):
+                return []
+            rows = db.execute("""SELECT latitude,longitude,accuracy_m,speed_kmh,recorded_at
+                FROM app.driver_positions WHERE driver_id=%s AND received_at>=%s
+                ORDER BY received_at,id""", (driver_id, since)).fetchall()
+            return self._plain(rows)

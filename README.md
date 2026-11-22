@@ -6,7 +6,7 @@
 
 Projeto-piloto de gestão de entregas para a Conrado Transportes. O DutraLog atende a operação do motorista; o DutraTracking concentra a visão administrativa. Desenvolvimento iniciado em novembro de 2026.
 
-Versão candidata atual: **0.10.0-rc.4**.
+Versão candidata atual: **0.11.0-rc.1**.
 
 Escopo: importação manual de XML de NF-e, viagens vinculadas a placas, controle individual de notas e canhotos, ocorrências, painel administrativo e PWA instalável com fila offline.
 

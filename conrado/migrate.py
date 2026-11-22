@@ -27,6 +27,9 @@ MIGRATIONS = {
         ROOT / "infra" / "supabase" / "007_delivery_workflow.sql",
         ("delivery_starts", "delivery_events"),
     ),
+    "008_driver_positions": (
+        ROOT / "infra" / "supabase" / "008_driver_positions.sql", ("driver_positions",),
+    ),
 }
 
 
