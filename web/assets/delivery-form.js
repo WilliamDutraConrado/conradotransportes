@@ -54,7 +54,13 @@
     if (!input?.started) throw new Error("Toque em “Iniciar descarregamento” antes de concluir.");
 
     const observation = String(input?.observation || "").trim();
-    if (observation.length > 1000) throw new Error("A observação deve ter no máximo 1.000 caracteres.");
+    if (observation.length > 940) throw new Error("A observação deve ter no máximo 940 caracteres.");
+    const receiverName = status === "delivered" ? String(input?.receiverName || "").trim() : "";
+    const validReceiver = receiverName.length >= 2 && receiverName.length <= 40 &&
+      /^[\p{L}]+(?:[-'][\p{L}]+)?$/u.test(receiverName);
+    if (status === "delivered" && !validReceiver) {
+      throw new Error("Informe somente o primeiro nome do recebedor.");
+    }
     if (rule.photoRequired && !input?.hasPhoto) {
       throw new Error("Fotografe o canhoto assinado para confirmar a entrega.");
     }
@@ -90,7 +96,7 @@
     }
 
     return {
-      status, reason, observation, occurrenceType, itemCode, expectedQuantity, receivedQuantity
+      status, reason, observation, receiverName, occurrenceType, itemCode, expectedQuantity, receivedQuantity
     };
   }
 

@@ -69,6 +69,22 @@ button.danger { background: #9b3535; }
   box-shadow: 0 3px 14px #102a430c;
   backdrop-filter: blur(14px);
 }
+.driver-app .topbar {
+  background: linear-gradient(135deg, #071d32 0%, #0d2f4d 58%, #123f62 100%);
+  color: #fff;
+  border-bottom-color: #1d4c6d;
+  box-shadow: 0 8px 24px #071d3233;
+  backdrop-filter: none;
+}
+.driver-app .brand h1 { color: #fff; }
+.driver-app .brand p { color: #c8d9e6; }
+.driver-app .brand-symbol { background: #fff; box-shadow: 0 6px 18px #0000002e; }
+.driver-app .header-actions .ghost {
+  color: #fff;
+  background: #ffffff14;
+  border-color: #ffffff42;
+}
+.driver-app .header-actions .ghost:hover { color: #fff; background: #ffffff24; }
 .topbar-inner {
   width: min(1160px, 100%);
   margin: auto;
@@ -214,7 +230,20 @@ input[type="file"] { padding: 9px; background: #f8fafc; }
 .delivery-copy span { color: var(--muted); font-size: .875rem; margin-top: 2px; }
 .delivery-body { border-top: 1px solid #e7eef3; padding: 18px 20px 20px; }
 .delivery-address { margin: 0 0 12px; color: #3f586c; }
-.navigation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 14px; }
+.navigation-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 14px; }
+.navigation-link {
+  width: 50px;
+  min-width: 50px;
+  height: 50px;
+  min-height: 50px;
+  padding: 5px;
+  border: 1px solid #cfdae3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 3px 10px #102a4314;
+}
+.navigation-link:hover { background: #f2f7fa; border-color: #aebfcb; }
+.navigation-link img { display: block; width: 38px; height: 38px; object-fit: contain; border-radius: 9px; }
 .arrival-panel {
   display: flex;
   align-items: center;
@@ -329,7 +358,7 @@ dialog .card { margin: 0; box-shadow: none; }
   .status-strip { flex-wrap: wrap; }
   .status-strip > button { width: 100%; }
   .diagnostics { grid-template-columns: 1fr; }
-  .navigation-actions, .quantity-grid { grid-template-columns: 1fr; }
+  .quantity-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0-rc.4 — 2026-11-21
+
+- Cabeçalho do aplicativo do motorista refinado em azul-marinho, com contraste e acabamento próprios para uso no celular.
+- Atalhos de navegação reduzidos aos ícones oficiais do Waze e do Google Maps, preservando os destinos e a área mínima de toque.
+- Baixa como `Entregue` agora solicita somente o primeiro nome do recebedor; o campo de observações permanece vazio e opcional.
+- Cache da PWA atualizado para distribuir os novos ícones e a interface revisada aos aparelhos instalados.
+
 Todas as alterações relevantes deste projeto são registradas aqui.
 
 ## 0.10.0-rc.3 — 2026-11-20

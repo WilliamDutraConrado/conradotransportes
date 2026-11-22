@@ -9,10 +9,25 @@ from unittest.mock import MagicMock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from conrado.gestao import Handler, Server
+from conrado.gestao import Handler, Server, delivery_observation
 from conrado.store import ServiceUnavailable
 from conrado.version import VERSION
 from test_importer import xml
+
+
+class DeliveryObservationTests(unittest.TestCase):
+    def test_receiver_is_preserved_without_prefilling_optional_observation(self):
+        self.assertEqual(delivery_observation("delivered", "João", ""), "Recebedor: João")
+        self.assertEqual(
+            delivery_observation("delivered", "Ana", "Caixas conferidas"),
+            "Recebedor: Ana\nCaixas conferidas",
+        )
+
+    def test_receiver_accepts_only_a_first_name(self):
+        with self.assertRaisesRegex(Exception, "primeiro nome"):
+            delivery_observation("delivered", "João da Silva", "")
+        with self.assertRaisesRegex(Exception, "primeiro nome"):
+            delivery_observation("refused", "João", "")
 
 
 class APITest(unittest.TestCase):

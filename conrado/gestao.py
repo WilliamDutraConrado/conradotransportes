@@ -33,6 +33,8 @@ STATIC_ROUTES = {
     "/assets/delivery-form.js": ("web/assets/delivery-form.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/offline-queue.js": ("web/assets/offline-queue.js", "text/javascript; charset=utf-8", "no-cache"),
     "/assets/emblema-dutralog.webp": ("web/assets/emblema-dutralog.webp", "image/webp", "public, max-age=86400"),
+    "/assets/waze-official.png": ("web/assets/waze-official.png", "image/png", "public, max-age=86400"),
+    "/assets/google-maps-official.png": ("web/assets/google-maps-official.png", "image/png", "public, max-age=86400"),
     "/assets/dutralog-apple-touch-icon.png": ("web/assets/dutralog-apple-touch-icon.png", "image/png", "public, max-age=86400"),
     "/assets/dutralog-icon-192.png": ("web/assets/dutralog-icon-192.png", "image/png", "public, max-age=86400"),
     "/assets/dutralog-icon-512.png": ("web/assets/dutralog-icon-512.png", "image/png", "public, max-age=86400"),
@@ -45,6 +47,20 @@ STATIC_ROUTES = {
     "/manifest.webmanifest": ("web/manifest.webmanifest", "application/manifest+json; charset=utf-8", "public, max-age=300"),
     "/sw.js": ("web/sw.js", "text/javascript; charset=utf-8", "no-cache"),
 }
+
+
+def delivery_observation(status: str, receiver_name: str, observation: str) -> str:
+    """Preserva o recebedor no histórico sem exigir migração destrutiva."""
+    receiver = str(receiver_name or "").strip()
+    note = str(observation or "").strip()
+    if not receiver:
+        return note
+    valid_first_name = 2 <= len(receiver) <= 40 and re.fullmatch(
+        r"[^\W\d_]+(?:[-'][^\W\d_]+)?", receiver, re.UNICODE
+    )
+    if status != "delivered" or not valid_first_name:
+        raise BusinessError("Informe somente o primeiro nome do recebedor")
+    return f"Recebedor: {receiver}" + (f"\n{note}" if note else "")
 
 
 class Server(ThreadingHTTPServer):
@@ -377,7 +393,9 @@ class Handler(BaseHTTPRequestHandler):
                     body.get("affected_item", ""), body.get("seller_name", ""),
                     start_id=body.get("start_id", ""), completed_at=body.get("completed_at", ""),
                     occurrence_type=body.get("occurrence_type", ""),
-                    observation=body.get("observation", ""),
+                    observation=delivery_observation(
+                        body["status"], body.get("receiver_name", ""), body.get("observation", "")
+                    ),
                     expected_quantity=body.get("expected_quantity", ""),
                     received_quantity=body.get("received_quantity", ""),
                 )

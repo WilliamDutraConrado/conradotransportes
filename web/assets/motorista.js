@@ -277,8 +277,8 @@ function renderTrip() {
       <div class="delivery-body">
         <p class="delivery-address">${esc(note.address)}</p>
         <div class="navigation-actions" aria-label="Abrir rota no GPS">
-          <a class="button secondary" href="${routes.waze}" target="_blank" rel="noopener noreferrer">Abrir no Waze</a>
-          <a class="button ghost" href="${routes.maps}" target="_blank" rel="noopener noreferrer">Google Maps</a>
+          <a class="button navigation-link" href="${routes.waze}" target="_blank" rel="noopener noreferrer" aria-label="Abrir no Waze" title="Waze"><img src="/assets/waze-official.png" alt="" aria-hidden="true"></a>
+          <a class="button navigation-link" href="${routes.maps}" target="_blank" rel="noopener noreferrer" aria-label="Abrir no Google Maps" title="Google Maps"><img src="/assets/google-maps-official.png" alt="" aria-hidden="true"></a>
         </div>
         <div class="arrival-panel ${start ? "is-started" : ""}" id="arrival-panel-${note.id}">
           ${start ? `<div><strong>Descarregamento iniciado às ${esc(startedText)}</strong><span id="elapsed-${note.id}">${esc(elapsedLabel(start.started_at))}${start.latitude != null ? " • localização registrada" : ""}</span></div>` :
@@ -305,8 +305,12 @@ function renderTrip() {
           </div>
           <label>Foto do canhoto ou evidência<span class="required-marker" id="photo-required-${note.id}">${rule.photoRequired ? " • obrigatória" : " • opcional"}</span>
             <input type="file" id="photo-${note.id}" accept="image/*" capture="environment"${rule.photoRequired ? " required" : ""} aria-describedby="requirements-${note.id}"></label>
+          <div id="receiver-group-${note.id}">
+            <label>Recebedor<span class="required-marker"> • primeiro nome</span>
+              <input id="receiver-${note.id}" maxlength="40" autocomplete="off" placeholder="Primeiro nome" required></label>
+          </div>
           <label>Observações<span class="required-marker"> • opcional</span>
-            <textarea id="observation-${note.id}" maxlength="1000" placeholder="Complemento de informações sobre esta entrega"></textarea></label>
+            <textarea id="observation-${note.id}" maxlength="940" placeholder=""></textarea></label>
           <p class="hint note-requirements" id="requirements-${note.id}">${esc(rule.hint)}</p>
           <button id="save-${note.id}" data-action="save-note" data-note-id="${note.id}">Concluir baixa</button>
         </div>
@@ -358,6 +362,10 @@ function updateNoteRequirements(noteId) {
   $(`requirements-${noteId}`).textContent = rule.hint;
   $(`refusal-group-${noteId}`).hidden = status.value !== "refused";
   $(`occurrence-group-${noteId}`).hidden = status.value !== "occurrence";
+  const receiverGroup = $(`receiver-group-${noteId}`);
+  const receiver = $(`receiver-${noteId}`);
+  receiverGroup.hidden = status.value !== "delivered";
+  receiver.required = status.value === "delivered";
   const occurrenceType = $(`occurrence-type-${noteId}`)?.value || "general";
   $(`general-group-${noteId}`).hidden = status.value !== "occurrence" || occurrenceType !== "general";
   $(`partial-group-${noteId}`).hidden = status.value !== "occurrence" || occurrenceType !== "partial_shortage";
@@ -503,6 +511,7 @@ async function saveDelivery(noteId) {
       expectedQuantity: $(`expected-${noteId}`).value,
       receivedQuantity: $(`received-${noteId}`).value,
       observation: $(`observation-${noteId}`).value,
+      receiverName: $(`receiver-${noteId}`).value,
       hasPhoto: Boolean(file)
     });
     notifyNote(noteId, file ? "Otimizando a foto e enviando a baixa…" : "Enviando a baixa…");
@@ -513,6 +522,7 @@ async function saveDelivery(noteId) {
       completed_at: new Date().toISOString(), occurrence_type: values.occurrenceType,
       affected_item: values.itemCode, expected_quantity: values.expectedQuantity,
       received_quantity: values.receivedQuantity, observation: values.observation,
+      receiver_name: values.receiverName,
       seller_name: note.seller || ""
     };
     if (!session || !navigator.onLine) {

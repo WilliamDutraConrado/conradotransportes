@@ -1,12 +1,14 @@
 "use strict";
 
-const VERSION = "0.10.0-rc.3";
+const VERSION = "0.10.0-rc.4";
 const CACHE = `dutralog-driver-shell-${VERSION}`;
 const SHELL = [
   "/motorista",
   "/manifest.webmanifest",
   "/assets/app.css",
   "/assets/emblema-dutralog.webp",
+  "/assets/waze-official.png",
+  "/assets/google-maps-official.png",
   "/assets/dutralog-apple-touch-icon.png",
   "/assets/dutralog-icon-192.png",
   "/assets/dutralog-icon-512.png",

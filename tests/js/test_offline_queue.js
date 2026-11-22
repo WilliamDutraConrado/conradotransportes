@@ -89,14 +89,20 @@ test("sessão expirada preserva toda a fila para novo login", async () => {
 
 test("entrega concluída exige canhoto antes do envio", () => {
   assert.throws(() => validateInput({
-    status: "delivered", started: true, hasPhoto: false
+    status: "delivered", started: true, hasPhoto: false, receiverName: "João"
   }), /Fotografe o canhoto/);
   assert.deepEqual(validateInput({
-    status: "delivered", started: true, hasPhoto: true, observation: "Canhoto legível"
+    status: "delivered", started: true, hasPhoto: true, observation: "Canhoto legível", receiverName: "João"
   }), {
-    status: "delivered", reason: "", observation: "Canhoto legível", occurrenceType: "",
+    status: "delivered", reason: "", observation: "Canhoto legível", receiverName: "João", occurrenceType: "",
     itemCode: "", expectedQuantity: "", receivedQuantity: ""
   });
+  assert.throws(() => validateInput({
+    status: "delivered", started: true, hasPhoto: true, receiverName: "João da Silva"
+  }), /primeiro nome/);
+  assert.throws(() => validateInput({
+    status: "delivered", started: true, hasPhoto: true, receiverName: "João", observation: "x".repeat(941)
+  }), /940 caracteres/);
 });
 
 test("recusa aceita somente os dois motivos operacionais", () => {
