@@ -62,6 +62,8 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn("(pointer: coarse)", driver)
         self.assertIn("TimeoutError", driver)
         self.assertIn("7000", driver)
+        self.assertIn('for="photo-camera-${note.id}"', driver)
+        self.assertNotIn('data-action="open-camera"', driver)
         self.assertIn('capture="environment"', driver)
         self.assertIn('data-photo-source="gallery"', driver)
         self.assertIn("selectedPhotos", driver)

@@ -481,7 +481,7 @@ function renderTrip() {
           <fieldset class="photo-field">
             <legend>Foto do canhoto ou evidência<span class="required-marker" id="photo-required-${note.id}">${rule.photoRequired ? " • obrigatória" : " • opcional"}</span></legend>
             <div class="photo-actions">
-              <button class="photo-action" type="button" data-action="open-camera" data-note-id="${note.id}">Abrir câmera</button>
+              <label class="button photo-action" for="photo-camera-${note.id}">Abrir câmera</label>
               <label class="button ghost photo-action" for="photo-gallery-${note.id}">Escolher foto</label>
             </div>
             <input class="photo-file-input" type="file" id="photo-camera-${note.id}" data-photo-source="camera" data-note-id="${note.id}" accept="image/*" capture="environment" aria-describedby="requirements-${note.id}">
