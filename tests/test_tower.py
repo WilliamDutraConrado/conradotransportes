@@ -91,7 +91,7 @@ class BuildTowerTests(unittest.TestCase):
         self.assertEqual(totals["delivered_today"], 2)
         self.assertEqual(totals["issues_today"], 1)
         self.assertEqual(totals["in_route"], 3)
-        self.assertEqual(totals["with_signal"], 2)
+        self.assertEqual(totals["with_signal"], 1)
         self.assertEqual(totals["no_signal"], 1)
 
         kinds = [alert["kind"] for alert in result["alerts"]]
@@ -101,6 +101,32 @@ class BuildTowerTests(unittest.TestCase):
         self.assertEqual(len(result["delivery_points"]), 1)
         reverted = [item for item in result["timeline"] if item["reverted"]]
         self.assertEqual(len(reverted), 1)
+
+    def test_with_signal_requires_recent_continuous_gps(self):
+        raw = {
+            "drivers": [driver(1), driver(2, "Bruno Lima", "BRA2E19")],
+            "trips": [trip(1), trip(2)],
+            "events": [],
+            "active_starts": [{
+                "driver_id": 2, "note_id": 5, "started_at": at(1),
+                "latitude": -20.2, "longitude": -44.9, "accuracy_m": 15,
+                "number": "555", "recipient": "Mercado", "city": "Itaúna",
+            }],
+            "positions": [{
+                "driver_id": 1, "latitude": -20.14, "longitude": -44.88,
+                "accuracy_m": 12, "speed_kmh": 42.0, "heading": 90.0,
+                "recorded_at": at(1),
+            }],
+        }
+
+        result = build_tower(raw, NOW)
+        by_id = {item["driver_id"]: item for item in result["drivers"]}
+
+        self.assertEqual(by_id[1]["position"]["source"], "gps")
+        self.assertEqual(by_id[2]["status"], "in_service")
+        self.assertEqual(by_id[2]["position"]["source"], "delivery")
+        self.assertLessEqual(by_id[2]["signal_age_seconds"], SIGNAL_STALE_SECONDS)
+        self.assertEqual(result["totals"]["with_signal"], 1)
 
     def test_downsample_keeps_endpoints(self):
         points = [{"i": index} for index in range(1000)]

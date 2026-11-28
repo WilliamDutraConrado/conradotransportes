@@ -288,7 +288,8 @@ class PostgresStoreTests(unittest.TestCase):
         path = "viagens/3/notas/2/event-123456789-abcdef012345.jpg"
         store = FakePostgres([
             [{"id": 9, "storage_path": path}],
-            {"total": 2}, {"total": 3}, {"total": 4}, {"total": 5},
+            {"ready": True},
+            {"total": 2}, {"total": 3}, {"total": 4}, {"total": 5}, {"total": 6},
         ])
         moment = datetime(2026, 11, 18, tzinfo=timezone.utc)
 
@@ -300,15 +301,17 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertFalse(result["applied"])
         self.assertEqual(result["candidates"], {
             "admin_sessions": 2, "driver_sessions": 3, "login_limits": 4,
-            "evidence": 1, "audit": 5,
+            "evidence": 1, "audit": 5, "driver_positions": 6,
         })
         store.storage.delete.assert_not_called()
+        self.assertFalse(any("DELETE FROM app.driver_positions" in sql for sql, _ in store.calls))
 
     def test_retention_deletes_private_object_before_database_row(self):
         path = "viagens/3/notas/2/event-123456789-abcdef012345.jpg"
         store = FakePostgres([
             [{"id": 9, "storage_path": path}],
-            {"total": 0}, {"total": 0}, {"total": 0}, {"total": 0},
+            {"ready": True},
+            {"total": 0}, {"total": 0}, {"total": 0}, {"total": 0}, {"total": 2},
             None, None, None, None, None, None,
         ])
         moment = datetime(2026, 11, 18, tzinfo=timezone.utc)
@@ -321,6 +324,26 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertTrue(result["applied"])
         store.storage.delete.assert_called_once_with(path)
         self.assertTrue(any("DELETE FROM app.evidence" in sql for sql, _ in store.calls))
+        position_delete = next(
+            (sql, params) for sql, params in store.calls
+            if "DELETE FROM app.driver_positions" in sql
+        )
+        self.assertEqual(position_delete[1], (moment - timedelta(days=30),))
+
+    def test_retention_skips_positions_when_migration_is_pending(self):
+        store = FakePostgres([
+            [], {"ready": False},
+            {"total": 0}, {"total": 0}, {"total": 0}, {"total": 0},
+        ])
+        moment = datetime(2026, 11, 18, tzinfo=timezone.utc)
+
+        result = store.cleanup_retention(
+            now_at=moment, evidence_before=moment - timedelta(days=180),
+            audit_before=moment - timedelta(days=730), apply=False,
+        )
+
+        self.assertEqual(result["candidates"]["driver_positions"], 0)
+        self.assertFalse(any("app.driver_positions WHERE received_at" in sql for sql, _ in store.calls))
 
 
 if __name__ == "__main__":

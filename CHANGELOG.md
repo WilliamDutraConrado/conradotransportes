@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0-rc.2 — 2026-11-28
+
+- Integradas à torre as correções mais recentes da captura de canhoto no Android.
+- O indicador “Com sinal ao vivo” agora considera somente GPS contínuo e recente, sem confundir a localização pontual do início de descarga.
+- A manutenção periódica passa a incluir posições com mais de 30 dias em SQLite e PostgreSQL, preservando o modo de prévia e o ambiente ainda sem a migração 008.
+- O DutraLog explica o compartilhamento de localização antes do login e mostra estados explícitos quando não há viagem, conexão, GPS ou suporte do servidor.
+- O runbook exige aplicar e validar `008_driver_positions` antes de publicar a torre de controle.
+
 ## 0.11.0-rc.1 — 2026-11-21
 
 ### Torre de controle (DutraTracking)

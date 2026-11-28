@@ -444,6 +444,40 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(diagnostic["active_trips"], 1)
         self.assertEqual(diagnostic["orphan_evidence"], 0)
 
+    def test_retencao_de_posicoes_respeita_preview_e_janela_de_trinta_dias(self):
+        moment = datetime(2026, 11, 28, 15, tzinfo=timezone.utc)
+        old = (moment - timedelta(days=31)).isoformat()
+        recent = (moment - timedelta(days=29)).isoformat()
+        with self.db.connection() as connection:
+            connection.execute("""INSERT INTO driver_positions(
+                driver_id,trip_id,latitude,longitude,accuracy_m,speed_kmh,heading,recorded_at,received_at
+            ) VALUES(?,?,?,?,?,?,?,?,?)""", (
+                self.driver["driver_id"], None, -20.145, -44.883, 10, None, None, old, old,
+            ))
+            connection.execute("""INSERT INTO driver_positions(
+                driver_id,trip_id,latitude,longitude,accuracy_m,speed_kmh,heading,recorded_at,received_at
+            ) VALUES(?,?,?,?,?,?,?,?,?)""", (
+                self.driver["driver_id"], None, -20.146, -44.884, 10, None, None, recent, recent,
+            ))
+
+        arguments = {
+            "now_at": moment,
+            "evidence_before": moment - timedelta(days=180),
+            "audit_before": moment - timedelta(days=730),
+        }
+        preview = self.db.cleanup_retention(**arguments, apply=False)
+        self.assertEqual(preview["candidates"]["driver_positions"], 1)
+        with self.db.connection() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM driver_positions").fetchone()[0], 2)
+
+        applied = self.db.cleanup_retention(**arguments, apply=True)
+        self.assertEqual(applied["deleted"]["driver_positions"], 1)
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT received_at FROM driver_positions ORDER BY received_at"
+            ).fetchall()
+        self.assertEqual([row["received_at"] for row in rows], [recent])
+
 
 if __name__ == "__main__":
     unittest.main()

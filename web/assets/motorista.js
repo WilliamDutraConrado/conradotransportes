@@ -624,22 +624,38 @@ function distanceMeters(left, right) {
   return 2 * radius * Math.asin(Math.sqrt(a));
 }
 
+function locationResultState(result) {
+  if (result?.recorded || result?.reason === "throttled") {
+    return { text: "Localização compartilhada", state: "on", remember: true, stop: false };
+  }
+  if (result?.reason === "no_active_trip") {
+    return { text: "Localização pausada: sem viagem liberada", state: "idle", remember: false, stop: true };
+  }
+  if (result?.reason === "unavailable") {
+    return { text: "Localização indisponível no servidor", state: "off", remember: false, stop: true };
+  }
+  return { text: "Localização não compartilhada", state: "off", remember: false, stop: false };
+}
+
 async function sendLocation(force = false) {
-  if (!lastFix || sendingLocation || !session || !currentTrip || !navigator.onLine) return;
+  if (!lastFix || sendingLocation || !session || !currentTrip) return;
+  if (!navigator.onLine) {
+    setGpsStatus("Localização aguardando conexão", "idle");
+    return;
+  }
   const elapsed = lastSent ? Date.now() - lastSent.at : Infinity;
   const moved = lastSent ? distanceMeters(lastSent, lastFix) : Infinity;
   if (!force && elapsed < LOCATION_INTERVAL_MS && !(elapsed >= LOCATION_MIN_INTERVAL_MS && moved >= LOCATION_MIN_DISTANCE_M)) return;
   sendingLocation = true;
   try {
     const result = await request("/api/driver/position", lastFix, 15000);
-    if (result.recorded || result.reason === "throttled") {
-      lastSent = { ...lastFix, at: Date.now() };
-      setGpsStatus("Localização compartilhada", "on");
-    } else if (result.reason === "no_active_trip") {
-      setGpsStatus("", "idle");
-    }
+    const outcome = locationResultState(result);
+    if (outcome.remember) lastSent = { ...lastFix, at: Date.now() };
+    setGpsStatus(outcome.text, outcome.state);
+    if (outcome.stop) stopLocationSharing(false);
   } catch (_) {
     // Falha de rede: a próxima leitura do GPS tenta de novo.
+    setGpsStatus("Falha ao compartilhar localização; nova tentativa automática", "idle");
   } finally {
     sendingLocation = false;
   }
@@ -663,6 +679,10 @@ function startLocationSharing() {
     if (error.code === error.PERMISSION_DENIED) {
       setGpsStatus("Localização bloqueada", "off");
       stopLocationSharing(false);
+    } else if (error.code === error.POSITION_UNAVAILABLE) {
+      setGpsStatus("Sinal de GPS indisponível", "idle");
+    } else {
+      setGpsStatus("Aguardando sinal do GPS", "idle");
     }
   }, { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 });
   locationTimer = setInterval(() => sendLocation(), LOCATION_INTERVAL_MS);

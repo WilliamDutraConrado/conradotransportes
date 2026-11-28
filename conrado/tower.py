@@ -247,7 +247,13 @@ def build_tower(raw: dict, moment: datetime | None = None) -> dict:
         "totals": {
             "drivers": len(drivers),
             "in_route": len(en_route),
-            "with_signal": sum(1 for item in en_route if item["status"] in ("in_route", "in_service")),
+            "with_signal": sum(
+                1 for item in en_route
+                if item["position"]
+                and item["position"]["source"] == "gps"
+                and item["signal_age_seconds"] is not None
+                and item["signal_age_seconds"] <= SIGNAL_STALE_SECONDS
+            ),
             "in_service": sum(1 for item in drivers if item["status"] == "in_service"),
             "no_signal": sum(1 for item in drivers if item["status"] == "no_signal"),
             "delivered_today": delivered_total,

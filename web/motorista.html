@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DutraLog">
   <meta name="application-name" content="DutraLog">
-  <meta name="app-version" content="0.11.0-rc.1">
+  <meta name="app-version" content="0.11.0-rc.2">
   <title>DutraLog • Motorista</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/dutralog-icon-192.png" type="image/png" sizes="192x192">
@@ -49,7 +49,8 @@
     <section class="card" id="loginBox">
       <span class="eyebrow">Acesso individual</span>
       <h2>Entrar na viagem</h2>
-      <form id="login" class="stack" aria-describedby="loginHint">
+      <p class="hint" id="locationDisclosure" role="note"><strong>Localização na rota:</strong> quando houver uma viagem liberada, o DutraLog solicitará acesso à localização e a compartilhará com a torre de controle somente enquanto o aplicativo estiver aberto. As posições são mantidas por até 30 dias.</p>
+      <form id="login" class="stack" aria-describedby="locationDisclosure loginHint">
         <label>Placa do caminhão
           <input name="plate" placeholder="ABC-1D23" required autocapitalize="characters" autocomplete="username" inputmode="text" enterkeyhint="next">
         </label>

@@ -426,12 +426,14 @@ class Store:
                           audit_before: datetime, apply: bool = False) -> dict:
         """Limpa somente sessões vencidas e dados além da retenção aprovada.
 
-        Canhotos só são elegíveis quando a viagem já foi encerrada.
+        Canhotos só são elegíveis quando a viagem já foi encerrada; posições
+        de motoristas seguem a janela fixa de minimização da torre de controle.
         """
         moment = now_at.astimezone(timezone.utc)
         moment_iso = moment.isoformat()
         evidence_iso = evidence_before.astimezone(timezone.utc).isoformat()
         audit_iso = audit_before.astimezone(timezone.utc).isoformat()
+        positions_iso = (moment - timedelta(days=POSITION_RETENTION_DAYS)).isoformat()
         login_cutoff = moment.timestamp() - 86_400
         with self.connection() as db:
             counts = {
@@ -450,6 +452,9 @@ class Store:
                 "audit": db.execute(
                     "SELECT COUNT(*) FROM audit WHERE happened_at<?", (audit_iso,)
                 ).fetchone()[0],
+                "driver_positions": db.execute(
+                    "SELECT COUNT(*) FROM driver_positions WHERE received_at<?", (positions_iso,)
+                ).fetchone()[0],
             }
             if not apply:
                 return {"applied": False, "candidates": counts, "deleted": {key: 0 for key in counts}}
@@ -461,6 +466,7 @@ class Store:
                 JOIN trips t ON t.id=n.trip_id WHERE t.status='closed' AND x.created_at<?
             )""", (evidence_iso,))
             db.execute("DELETE FROM audit WHERE happened_at<?", (audit_iso,))
+            db.execute("DELETE FROM driver_positions WHERE received_at<?", (positions_iso,))
             self._audit(db, "system:retention", "retention_applied", "system", 0, counts)
             return {"applied": True, "candidates": counts, "deleted": counts.copy()}
 

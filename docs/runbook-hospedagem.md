@@ -66,6 +66,12 @@ Aplicar antes do primeiro login: `003_persistent_login_limits`, `004_admin_auth`
 `005_admin_roles` e `006_retention_indexes`. O executor verifica RLS após cada migração. Não configurar
 migração destrutiva automática no processo de deploy.
 
+Antes de publicar a versão com a torre de controle, aplicar e validar
+`python -m conrado.migrate 008_driver_positions`. A migração
+`008_driver_positions` deve estar concluída antes do deploy da torre para que o
+sinal GPS contínuo, a trilha do dia e o indicador "Com sinal ao vivo" reflitam
+as posições dos motoristas. Não automatizar a migração no processo de deploy.
+
 O Render consulta o healthcheck durante o deploy. No plano gratuito, o serviço
 hiberna após inatividade e pode levar cerca de um minuto para reativar. Isso é
 aceitável apenas em homologação; monitoramento contínuo ainda precisa ser

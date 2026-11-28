@@ -108,13 +108,15 @@ class PostgresStore:
 
     def cleanup_retention(self, *, now_at: datetime, evidence_before: datetime,
                           audit_before: datetime, apply: bool = False) -> dict:
-        """Aplica retenção em viagens encerradas e remove sessões já vencidas."""
+        """Aplica retenção em viagens encerradas, posições e sessões vencidas."""
         moment = now_at.astimezone(timezone.utc)
         login_cutoff = moment - timedelta(days=1)
+        positions_before = moment - timedelta(days=POSITION_RETENTION_DAYS)
         with self.connection() as db:
             evidence_rows = db.execute("""SELECT x.id,x.storage_path FROM app.evidence x
                 JOIN app.notes n ON n.id=x.note_id JOIN app.trips t ON t.id=n.trip_id
                 WHERE t.status='closed' AND x.created_at<%s ORDER BY x.id""", (evidence_before,)).fetchall()
+            positions_ready = self._positions_ready(db)
             counts = {
                 "admin_sessions": db.execute(
                     "SELECT COUNT(*) AS total FROM app.admin_sessions WHERE expires_at<=%s", (moment,)
@@ -129,6 +131,10 @@ class PostgresStore:
                 "audit": db.execute(
                     "SELECT COUNT(*) AS total FROM app.audit WHERE happened_at<%s", (audit_before,)
                 ).fetchone()["total"],
+                "driver_positions": db.execute(
+                    "SELECT COUNT(*) AS total FROM app.driver_positions WHERE received_at<%s",
+                    (positions_before,),
+                ).fetchone()["total"] if positions_ready else 0,
             }
         if not apply:
             return {"applied": False, "candidates": counts, "deleted": {key: 0 for key in counts}}
@@ -145,6 +151,8 @@ class PostgresStore:
                 db.execute("DELETE FROM app.evidence WHERE id=ANY(%s)",
                            ([row["id"] for row in evidence_rows],))
             db.execute("DELETE FROM app.audit WHERE happened_at<%s", (audit_before,))
+            if positions_ready:
+                db.execute("DELETE FROM app.driver_positions WHERE received_at<%s", (positions_before,))
             self._audit(db, "system:retention", "retention_applied", "system", 0, counts)
         return {"applied": True, "candidates": counts, "deleted": counts.copy()}
 
